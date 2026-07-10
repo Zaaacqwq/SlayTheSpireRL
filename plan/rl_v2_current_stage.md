@@ -1,6 +1,8 @@
-# 当前阶段：M0 清理、引擎验证与基准
+# 当前阶段：M1 通用环境与训练基础设施
 
 更新日期：2026-07-10
+
+M0 已完成；当前开始 M1。M1 的验收为 1,000 局 A0 随机 agent、零非法动作、worker seed 隔离、episode 不污染和可恢复训练基础设施。
 
 ## 已完成（有仓库证据）
 
@@ -49,3 +51,17 @@
 ## M0 验收记录
 
 M0 验收已达到当前定义门槛：8 workers steady benchmark 122.81 decision steps/s、benchmark errors 0；五角色随机合法 agent 各 20 个完整 episode，全部 game_over、非法动作/timeout 0；进程 kill 后 reset 自动恢复；所有主要 decision phase schema 已观察并记录。长期崩溃率和 1,000 局 A0 属于 M1 规模验收，不作为 M0 的完成条件。
+
+## M1 当前进度
+
+- [x] 初版 Gymnasium-shaped `STS2Env`，不强制依赖 gymnasium。
+- [x] 统一 observation normalization、实体编码、未知字段告警。
+- [x] trajectory `Transition` schema 和 Parquet/JSONL fallback writer。
+- [x] random/heuristic action 入口。
+- [ ] 1,000 局 A0 evaluator、seed isolation 和 episode pollution regression。
+- [ ] BC、Recurrent PPO、GAE、masked pointer policy、checkpoint/resume。
+- [ ] TensorBoard、实验配置和结果归档。
+
+## M1 下一步
+
+先实现 evaluator 和 trajectory 采集，再实现模型与 loss；所有训练实验必须同步记录 commit、配置、seed hash、checkpoint 和结果。

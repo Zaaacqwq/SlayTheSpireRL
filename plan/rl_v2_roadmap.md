@@ -1,6 +1,6 @@
 # STS2 RL v2 路线图
 
-状态：**M0 已完成，M1 待开始**。M2–M6 均未开始。
+状态：**M0 已完成，M1 进行中**。M2–M6 均未开始。
 
 ## 固定架构决策
 
@@ -18,7 +18,7 @@
 
 归档 v1；清空旧 RL；固定并构建 CLI；冻结 schema；五角色各随机合法完成 20 局；确定性重放；1/4/8/16 worker 吞吐、稳定性和恢复测试。实测 8 workers 122.81 decision steps/s，benchmark errors 0，五角色 episode 非法动作/timeout 0。
 
-### M1 — 通用环境与训练基础设施（未开始）
+### M1 — 通用环境与训练基础设施（进行中）
 
 进程池、规范化、Gymnasium 环境、Transformer/GRU pointer policy、BC、PPO/GAE、Parquet trajectory、checkpoint/恢复、统一评估和 TensorBoard。验收为随机 agent 无干预 1,000 局 A0，零非法动作、重复 worker seed 和 episode 污染。
 
