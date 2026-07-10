@@ -62,13 +62,18 @@ M0 验收已达到当前定义门槛：8 workers steady benchmark 122.81 decisio
 - [x] TensorBoard logger（无 tensorboard 时 JSONL fallback）和实验配置。
 - [x] 1,000 局 A0 evaluator：1,000 episodes、995 正常 game_over、5 异常（3 EngineTimeout、2 ProtocolError）；异常 seed 已独立重试，Defect 140 恢复，Necrobinder 32/Regent 29/Regent 74 稳定失败，Regent 76 稳定协议错误。
 - [x] BC update、PPO update、GAE、Recurrent GRU candidate policy 和 checkpoint/resume 初版。
-- [ ] 清零 5 个真实引擎异常、完成 seed isolation/episode pollution 长测后才能通过 M1。
+- [x] 定位并修复 nested card-select timeout 根因（见下方修复记录），固定为本地 fork commit `5eef59f1b696367642b48f7de8a0d6739502ff2c`。
+- [x] 5 个原失败 seed 有界回归（各 80 steps）：Defect-140、Necrobinder-32、Regent-29、Regent-76、Regent-74 全部 `error: null`，无 EngineTimeout/ProtocolError，单步最长 2.03s（原为 10s 超时）。脚本 `tools/m1_regress_failed_seeds.py`、`scratchpad/bounded_regress.py`。
+- [ ] 全量 1,000 局 A0 evaluator 复跑（`tools/m1_evaluate_1000.py`，固定 fork `5eef59f`）确认大规模零异常；结果待回填。
+- [ ] 完成 seed isolation/episode pollution 长测后才能通过 M1。
 
 ### M1 异常修复记录
 
 - `ParticleWall` 的“卡仍在手牌”假错误已在本地 sts2-cli 适配中移除；Regent-76 回归已不再产生 ProtocolError。
-- Necrobinder-32、Regent-29、Regent-74 的 timeout 均发生在 nested card-select：stderr 显示第一次选择已 resolve，游戏马上创建第二个 pending selector，但 CLI 没有返回第二个 JSON decision。已尝试避免 inline continuation 和同步 pump，仍需在 sts2-cli 的同步上下文/selector 生命周期中继续修复。
-- 已将 nested-selector 与 transient card-play 补丁固定为本地 fork commit `906751c5ddd4e30aa16bf899ac1962c729a38293`；该 commit 尚需 3 个 seed 回归确认后才能宣称 M1 通过。
+- **nested card-select timeout 根因已定位（2026-07-10）**：`RunSimulator.DetectDecisionPoint()` 在每个战斗动作里会二次调用 `WaitForActionExecutor()`（动作 handler 自身一次 + 战斗房间检测一次）。当第二层嵌套选牌（Necrobinder Snap、Regent Begone 等）在第一层选择的效果尚未提交完成前 resolve 时，游戏 `ActionExecutor.IsRunning` 会在本局剩余时间内**永久卡在 true**。该等待循环原写为「自旋 1000 次 `Thread.Sleep(1)`」，作者意图约 1s 预算，但 Windows 默认定时器精度把 `Sleep(1)` 舍入到约 15.6ms，实际每次自旋约 15.6s，两次调用共约 31s，超过 CLI 客户端 10s 响应超时→`EngineTimeout`。用 Harmony 反射对 `Thread.Sleep` 做 burst 累加诊断 + 时间戳复现，捕获到 `DoSelectCards→DetectDecisionPoint→WaitForActionExecutor→Thread.Sleep` 调用栈与精确 31s 耗时后确认。
+- **修复**：把该自旋循环从「迭代次数上限」改为基于 `Stopwatch` 的真实 1000ms 时间上限，并在出现 pending 选牌/奖励时提前退出；固定为本地 fork commit `5eef59f1b696367642b48f7de8a0d6739502ff2c`。
+- **已知残留（非根治）**：底层 `ActionExecutor.IsRunning` 卡住本身未消除——受影响 episode 在事件之后的每个动作仍约 1–2s（而非毫秒级）。这是被「止损」而非「根治」；大规模训练/吞吐基准会在这类 seed 上明显变慢，作为后续深挖引擎侧 stuck-executor 的跟进项。
+- 此前固定的 `906751c5ddd4e30aa16bf899ac1962c729a38293`（nested-selector 与 transient card-play 补丁）为本修复的父 commit，二者叠加后 3 个 timeout seed 回归通过。
 - 已创建 submodule 本地分支 `rl-v2-protocol-state-machine`，后续改动只进入该 fork；状态机设计见 `docs/RL_V2_CLI_STATE_MACHINE.md`。
 
 ## M1 下一步
