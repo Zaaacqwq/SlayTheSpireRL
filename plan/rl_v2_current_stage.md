@@ -64,18 +64,30 @@ M0 验收已达到当前定义门槛：8 workers steady benchmark 122.81 decisio
 - [x] BC update、PPO update、GAE、Recurrent GRU candidate policy 和 checkpoint/resume 初版。
 - [x] 定位并修复 nested card-select timeout 根因（见下方修复记录），固定为本地 fork commit `5eef59f1b696367642b48f7de8a0d6739502ff2c`。
 - [x] 5 个原失败 seed 有界回归（各 80 steps）：Defect-140、Necrobinder-32、Regent-29、Regent-76、Regent-74 全部 `error: null`，无 EngineTimeout/ProtocolError，单步最长 2.03s（原为 10s 超时）。脚本 `tools/m1_regress_failed_seeds.py`、`scratchpad/bounded_regress.py`。
-- [ ] 全量 1,000 局 A0 evaluator 复跑（`tools/m1_evaluate_1000.py`，固定 fork `5eef59f`）确认大规模零异常；结果待回填。
-- [ ] 完成 seed isolation/episode pollution 长测后才能通过 M1。
+- [x] 全量 1,000 局 A0 evaluator 复跑（`tools/m1_evaluate_progress.py`，固定 fork `5eef59f`，16 workers，per-decision timeout 10s，seeds `m1-a0-<char>-<0..199>`）：**1000/1000，0 EngineTimeout / 0 ProtocolError / 0 非法动作**，五角色各 200 局。结果 `rl/runs/m1_a0_1000_v2.jsonl`/`.json`。
+- [ ] **（新阻塞，2026-07-10）** 上述 1000 局里有 **4 局是 soft-lock**：撞满 2000 步上限、从未到 game_over。数字上算「clean」（无 error），但**不是真实对局**，属于 M1 明确禁止的 episode pollution，因此 **M1 仍未通过**。见下方 soft-lock 记录。
+- [ ] 根治 stuck-executor soft-lock（或在 evaluator 中检测无进展并判为失败），再补 seed isolation 长测后才能通过 M1。
 
 ### M1 异常修复记录
 
 - `ParticleWall` 的“卡仍在手牌”假错误已在本地 sts2-cli 适配中移除；Regent-76 回归已不再产生 ProtocolError。
 - **nested card-select timeout 根因已定位（2026-07-10）**：`RunSimulator.DetectDecisionPoint()` 在每个战斗动作里会二次调用 `WaitForActionExecutor()`（动作 handler 自身一次 + 战斗房间检测一次）。当第二层嵌套选牌（Necrobinder Snap、Regent Begone 等）在第一层选择的效果尚未提交完成前 resolve 时，游戏 `ActionExecutor.IsRunning` 会在本局剩余时间内**永久卡在 true**。该等待循环原写为「自旋 1000 次 `Thread.Sleep(1)`」，作者意图约 1s 预算，但 Windows 默认定时器精度把 `Sleep(1)` 舍入到约 15.6ms，实际每次自旋约 15.6s，两次调用共约 31s，超过 CLI 客户端 10s 响应超时→`EngineTimeout`。用 Harmony 反射对 `Thread.Sleep` 做 burst 累加诊断 + 时间戳复现，捕获到 `DoSelectCards→DetectDecisionPoint→WaitForActionExecutor→Thread.Sleep` 调用栈与精确 31s 耗时后确认。
 - **修复**：把该自旋循环从「迭代次数上限」改为基于 `Stopwatch` 的真实 1000ms 时间上限，并在出现 pending 选牌/奖励时提前退出；固定为本地 fork commit `5eef59f1b696367642b48f7de8a0d6739502ff2c`。
-- **已知残留（非根治）**：底层 `ActionExecutor.IsRunning` 卡住本身未消除——受影响 episode 在事件之后的每个动作仍约 1–2s（而非毫秒级）。这是被「止损」而非「根治」；大规模训练/吞吐基准会在这类 seed 上明显变慢，作为后续深挖引擎侧 stuck-executor 的跟进项。
-- 此前固定的 `906751c5ddd4e30aa16bf899ac1962c729a38293`（nested-selector 与 transient card-play 补丁）为本修复的父 commit，二者叠加后 3 个 timeout seed 回归通过。
+- 此前固定的 `906751c5ddd4e30aa16bf899ac1962c729a38293`（nested-selector 与 transient card-play 补丁）为本修复的父 commit，二者叠加后原 timeout seed 不再报错。
 - 已创建 submodule 本地分支 `rl-v2-protocol-state-machine`，后续改动只进入该 fork；状态机设计见 `docs/RL_V2_CLI_STATE_MACHINE.md`。
+
+### soft-lock 记录（2026-07-10，全量 1000 局暴露）
+
+- Stopwatch 修复只消除了「超时报错」这个**症状**，底层 `ActionExecutor.IsRunning` 卡住的根因未除。全量 1000 局暴露出 **4 个 soft-lock 局**，均在一次嵌套选牌之后战斗停止推进、`combat_play` 候选恒定、打牌无实际效果，一路空转到 2000 步上限，从不 game_over：
+  - 慢速模式（约 1990 ms/step，每局约 66 分钟）：`Necrobinder-32`、`Regent-29`、`Regent-74`——每个动作都被 `WaitForActionExecutor` 的 1000ms 上限拖满（两次调用）。
+  - 快速模式（约 19 ms/step，每局约 37s）：`Defect-23`——同样空转到 2000 步，但不触发 executor 等待，旧的超时机制根本发现不了。
+- probe（`scratchpad/probe_necro32.py`）确认：Necrobinder-32 自约第 37 步起 `combat_play` 恒定 4 候选，连续 120+ 步无变化，是软死锁而非「真的活了 2000 步」。
+- 影响：这 4 局让 1000 局总耗时从 5:46（前 997 局）膨胀到 1:11:16；更重要的是它们是**污染样本**，会毒化任何 BC/PPO 轨迹采集。
+- 根治方向（二选一或并行）：① 在 sts2-cli fork 里按 `docs/RL_V2_CLI_STATE_MACHINE.md` 的显式 pending-selector 状态机根除 executor 卡死；② 在 evaluator/env 里加**无进展检测**（连续 N 步 state-hash 不变即判定 soft-lock，将该 episode 标为失败并重启进程），既恢复吞吐又能把这类局正确计为失败而非 clean。
 
 ## M1 下一步
 
-先实现 evaluator 和 trajectory 采集，再实现模型与 loss；所有训练实验必须同步记录 commit、配置、seed hash、checkpoint 和结果。
+1. 复现并根治 4 个 soft-lock（优先引擎侧状态机；同时给 env/evaluator 加无进展 watchdog 兜底）。
+2. soft-lock 清零后重跑全量 1000 局，要求 0 error 且 0 soft-lock（无 2000-step 截断局）。
+3. 再补 seed isolation / episode pollution 长测，全部通过后方可标记 M1 完成。
+4. 所有训练实验必须同步记录 commit、配置、seed hash、checkpoint 和结果。
