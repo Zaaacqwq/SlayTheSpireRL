@@ -10,7 +10,7 @@
     "shop": ["type", "decision", "context", "cards", "relics", "potions", "card_removal_cost", "player"],
     "bundle_select": "observed in character smoke runs; nested bundle fields require fixture capture",
     "card_select": "observed in character smoke runs; selection fields require fixture capture",
-    "rest_site": "not yet observed in this capture",
+    "rest_site": ["type", "decision", "context", "options", "player"],
     "game_over": "observed for short Regent random runs"
   },
   "unknown_fields_policy": "preserve raw state; unknown decision phases fail closed"

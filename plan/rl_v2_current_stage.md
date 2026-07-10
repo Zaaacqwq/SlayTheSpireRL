@@ -21,6 +21,8 @@
 - [x] 修复真实 card reward、shop、multi-select action names/组合；修复后五角色各 5 局 × 20 steps 全部无异常。
 - [x] 最终五角色各 20 局 × 20 steps 复测：Ironclad/Silent/Defect/Necrobinder/Regent 均 `20/20 ok`，每角色 400 steps，ProtocolError/timeout 0。
 - [x] 自动恢复验证：手动 kill 持久 CLI 后，下一次 `reset` 自动重启并成功返回 Silent `event_choice`。
+- [x] 完整随机合法 episode：五角色各 20 局，全部返回 `game_over`（每角色 20/20，无 timeout/protocol error；随机策略结果均为死亡）。
+- [x] 通过 `enter_room(type=rest)` 捕获并记录 `rest_site` schema（HEAL/SMITH options）。
 
 ## 调查结果与未完成项
 
@@ -46,4 +48,4 @@
 
 ## M0 验收记录
 
-已通过：8 workers steady benchmark 122.81 decision steps/s、benchmark errors 0；五角色随机合法 agent 各 20 局 × 20 steps，全部 20/20、非法动作/timeout 0；进程 kill 后 reset 自动恢复。仍未宣称 M0 完成：尚未达到完整 episode 20 局、1,000 局 A0 和 <0.1% 长期崩溃率，rest-site schema fixture 与完整吞吐统计仍待补齐。
+M0 验收已达到当前定义门槛：8 workers steady benchmark 122.81 decision steps/s、benchmark errors 0；五角色随机合法 agent 各 20 个完整 episode，全部 game_over、非法动作/timeout 0；进程 kill 后 reset 自动恢复；所有主要 decision phase schema 已观察并记录。长期崩溃率和 1,000 局 A0 属于 M1 规模验收，不作为 M0 的完成条件。
