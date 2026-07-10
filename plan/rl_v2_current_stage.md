@@ -9,6 +9,10 @@
 - [x] 将官方 `sts2-cli` 以 submodule 固定到 `d11aa883b582dd68bd39b331f3370746b30d447e`。
 - [x] 建立严格的协议类型、动态合法动作初版、稳定状态 hash、固定 seed split、超时检测与持久进程客户端。
 - [x] 建立计划同步 CI 和不依赖游戏 DLL 的单元测试。
+- [x] 配置本机 `STS2_GAME_DIR`，使用 Git Bash 完成上游 setup；`sts2.dll` 已复制、IL patch 已完成，`.NET build` 0 errors（仅 3 个 nullable warnings）。
+- [x] 运行单次 JSON smoke test：Ironclad 固定 seed 返回 `event_choice`，ready/version 为 `0.2.0`。
+- [x] 五角色启动 smoke test：Ironclad、Silent、Defect、Necrobinder、Regent 各固定 seed 均返回 Act 1 `event_choice`。
+- [x] 同一 Ironclad seed 的两次 `EngineClient.reset` 状态 hash 一致：`685e709d1018645fc3769f11a9474f5b99c9da365b7bb6469b4b999fb715e9c5`。
 
 ## 调查结果与未完成项
 
@@ -16,6 +20,8 @@
 - 上游握手报告协议 `0.2.0`，但没有游戏版本或 CLI commit；状态没有统一显式 legal-actions 数组。当前 adapter 对未知 phase/缺失关键字段直接报错。
 - 上游支持 `start_run`、`load_save`、`set_player`、`enter_room`、`set_draw_order`，但“任意指定牌组/敌人/遗物/HP/seed 的原子 curriculum reset”尚未满足，需要协议扩展设计与回归测试。
 - 当前机器没有在已知 Steam 路径发现 `sts2.dll`，也未设置有效 `STS2_GAME_DIR`。因此 CLI build、schema 样本冻结、五角色实跑、确定性与吞吐验收均**未完成**。
+- （已解决）游戏实际位于 `D:\steam\steamapps\common\Slay the Spire 2\data_sts2_windows_x86_64`；setup 的递归查找已正确复制 DLL。环境 doctor 现在全部通过。
+- 上游 `tests/test_characters.py tests/test_play.py` 组合运行在约 40 秒内未完成，已终止；尚未判定原因，也未计入成功样本。
 - `card_select` 多选组合、药水目标、商店移除选牌等动作需用真实状态样本确认，不能提前宣称合法动作覆盖完整。
 
 ## 下一步（按顺序）
