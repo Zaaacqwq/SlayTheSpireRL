@@ -99,7 +99,7 @@ def legal_actions(state: Mapping[str, Any]) -> tuple[ActionCandidate, ...]:
                 out.append(ActionCandidate("use_potion", {"potion_index": potion["index"]}))
         out.append(ActionCandidate("end_turn", {}))
     elif phase == "map_select":
-        nodes = state.get("available_nodes", state.get("options", []))
+        nodes = state.get("available_nodes", state.get("choices", state.get("options", [])))
         for node in nodes:
             args = {k: node[k] for k in ("col", "row") if k in node}
             if len(args) != 2:
@@ -111,7 +111,7 @@ def legal_actions(state: Mapping[str, Any]) -> tuple[ActionCandidate, ...]:
         out.append(ActionCandidate("skip_card_reward", {}))
     elif phase in {"event_choice", "rest_site"}:
         for option in state.get("options", []):
-            if not option.get("is_locked", False):
+            if not option.get("is_locked", False) and option.get("is_enabled", True):
                 out.append(ActionCandidate("choose_option", {"option_index": option["index"]}))
     elif phase == "bundle_select":
         for bundle in state.get("bundles", state.get("options", [])):
