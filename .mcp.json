@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "sts2": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "E:\\STS2LLM\\mcp",
+        "python",
+        "server.py"
+      ]
+    }
+  }
+}

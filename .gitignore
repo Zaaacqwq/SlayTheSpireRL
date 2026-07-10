@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# .NET build artifacts (mod/)
+mod/bin/
+mod/obj/
+mod/out/
+
+# Trained model checkpoints (regenerable via `uv run python train.py`, large binaries)
+rl/models/*.zip
+
+# OS
+.DS_Store
+Thumbs.db
