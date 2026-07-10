@@ -1,0 +1,266 @@
+{
+  "seed_string": "LFLFWUJ8KS",
+  "total_timesteps": 100000,
+  "history": [
+    {
+      "step": 0,
+      "win_rate": 0.25,
+      "mean_reward": 3.1556
+    },
+    {
+      "step": 2000,
+      "win_rate": 0.225,
+      "mean_reward": 2.9304999531246723
+    },
+    {
+      "step": 4000,
+      "win_rate": 0.24675324675324675,
+      "mean_reward": 3.4649350117746884
+    },
+    {
+      "step": 6000,
+      "win_rate": 0.37,
+      "mean_reward": 4.279499927833676
+    },
+    {
+      "step": 8000,
+      "win_rate": 0.49,
+      "mean_reward": 5.286599911097437
+    },
+    {
+      "step": 10000,
+      "win_rate": 0.66,
+      "mean_reward": 6.293799890838564
+    },
+    {
+      "step": 12000,
+      "win_rate": 0.81,
+      "mean_reward": 7.193899901751429
+    },
+    {
+      "step": 14000,
+      "win_rate": 0.87,
+      "mean_reward": 7.605499905087054
+    },
+    {
+      "step": 16000,
+      "win_rate": 0.87,
+      "mean_reward": 7.664699901267886
+    },
+    {
+      "step": 18000,
+      "win_rate": 0.9,
+      "mean_reward": 7.854599893596023
+    },
+    {
+      "step": 20000,
+      "win_rate": 0.94,
+      "mean_reward": 8.014899888075888
+    },
+    {
+      "step": 22000,
+      "win_rate": 0.98,
+      "mean_reward": 8.192699892558158
+    },
+    {
+      "step": 24000,
+      "win_rate": 0.99,
+      "mean_reward": 8.245599891189485
+    },
+    {
+      "step": 26000,
+      "win_rate": 0.99,
+      "mean_reward": 8.282999892383813
+    },
+    {
+      "step": 28000,
+      "win_rate": 0.98,
+      "mean_reward": 8.27659989805892
+    },
+    {
+      "step": 30000,
+      "win_rate": 0.97,
+      "mean_reward": 8.189299895651638
+    },
+    {
+      "step": 32000,
+      "win_rate": 0.97,
+      "mean_reward": 8.138999888263642
+    },
+    {
+      "step": 34000,
+      "win_rate": 0.98,
+      "mean_reward": 8.198799897488207
+    },
+    {
+      "step": 36000,
+      "win_rate": 0.99,
+      "mean_reward": 8.258999894671142
+    },
+    {
+      "step": 38000,
+      "win_rate": 0.97,
+      "mean_reward": 8.173699893727898
+    },
+    {
+      "step": 40000,
+      "win_rate": 0.98,
+      "mean_reward": 8.23269990036264
+    },
+    {
+      "step": 42000,
+      "win_rate": 0.99,
+      "mean_reward": 8.222899909149856
+    },
+    {
+      "step": 44000,
+      "win_rate": 0.99,
+      "mean_reward": 8.294399908967316
+    },
+    {
+      "step": 46000,
+      "win_rate": 1.0,
+      "mean_reward": 8.387399901729077
+    },
+    {
+      "step": 48000,
+      "win_rate": 1.0,
+      "mean_reward": 8.332599894087762
+    },
+    {
+      "step": 50000,
+      "win_rate": 1.0,
+      "mean_reward": 8.330399892218411
+    },
+    {
+      "step": 52000,
+      "win_rate": 1.0,
+      "mean_reward": 8.374899895545095
+    },
+    {
+      "step": 54000,
+      "win_rate": 0.99,
+      "mean_reward": 8.307299900520594
+    },
+    {
+      "step": 56000,
+      "win_rate": 0.99,
+      "mean_reward": 8.292599895261228
+    },
+    {
+      "step": 58000,
+      "win_rate": 1.0,
+      "mean_reward": 8.335599891673773
+    },
+    {
+      "step": 60000,
+      "win_rate": 0.98,
+      "mean_reward": 8.220199901890009
+    },
+    {
+      "step": 62000,
+      "win_rate": 0.98,
+      "mean_reward": 8.2429998999089
+    },
+    {
+      "step": 64000,
+      "win_rate": 0.99,
+      "mean_reward": 8.28139989791438
+    },
+    {
+      "step": 66000,
+      "win_rate": 0.98,
+      "mean_reward": 8.260399896129966
+    },
+    {
+      "step": 68000,
+      "win_rate": 0.97,
+      "mean_reward": 8.201399902328848
+    },
+    {
+      "step": 70000,
+      "win_rate": 0.99,
+      "mean_reward": 8.284399901144207
+    },
+    {
+      "step": 72000,
+      "win_rate": 1.0,
+      "mean_reward": 8.370699902921915
+    },
+    {
+      "step": 74000,
+      "win_rate": 0.99,
+      "mean_reward": 8.306599900722503
+    },
+    {
+      "step": 76000,
+      "win_rate": 0.99,
+      "mean_reward": 8.297399906720965
+    },
+    {
+      "step": 78000,
+      "win_rate": 0.99,
+      "mean_reward": 8.320499905869365
+    },
+    {
+      "step": 80000,
+      "win_rate": 0.98,
+      "mean_reward": 8.2667999041453
+    },
+    {
+      "step": 82000,
+      "win_rate": 1.0,
+      "mean_reward": 8.349499906748534
+    },
+    {
+      "step": 84000,
+      "win_rate": 0.99,
+      "mean_reward": 8.330899914056063
+    },
+    {
+      "step": 86000,
+      "win_rate": 0.98,
+      "mean_reward": 8.301299904845655
+    },
+    {
+      "step": 88000,
+      "win_rate": 0.98,
+      "mean_reward": 8.250999905876816
+    },
+    {
+      "step": 90000,
+      "win_rate": 0.96,
+      "mean_reward": 8.12649991799146
+    },
+    {
+      "step": 92000,
+      "win_rate": 0.98,
+      "mean_reward": 8.20949992204085
+    },
+    {
+      "step": 94000,
+      "win_rate": 0.99,
+      "mean_reward": 8.28069991927594
+    },
+    {
+      "step": 96000,
+      "win_rate": 0.98,
+      "mean_reward": 8.271499904617666
+    },
+    {
+      "step": 98000,
+      "win_rate": 0.98,
+      "mean_reward": 8.280499902963639
+    },
+    {
+      "step": 100000,
+      "win_rate": 0.98,
+      "mean_reward": 8.236399914864451
+    },
+    {
+      "step": 100000,
+      "win_rate": 0.99,
+      "mean_reward": 8.350499999999995
+    }
+  ]
+}
