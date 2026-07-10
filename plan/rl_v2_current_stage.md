@@ -26,6 +26,7 @@
 - （已解决）游戏实际位于 `D:\steam\steamapps\common\Slay the Spire 2\data_sts2_windows_x86_64`；setup 的递归查找已正确复制 DLL。环境 doctor 现在全部通过。
 - 上游 `tests/test_characters.py tests/test_play.py` 组合运行在约 40 秒内未完成，已终止；尚未判定原因，也未计入成功样本。
 - 随机 rollout 的超时发生在战斗中连续合法动作之后，尚未确定是特定动作、CLI 引擎死锁还是 timeout 过短；需要保留 stderr、动作 trace 并用最小复现 seed 定位。
+- 已为 `EngineClient` 增加最近动作 trace 与 stderr tail；同一 seed 的后续 20-step 重跑未再次超时，说明问题可能与动作/引擎时序相关，仍需多次重复和进程恢复统计。
 - `card_select` 多选组合、药水目标、商店移除选牌等动作需用真实状态样本确认，不能提前宣称合法动作覆盖完整。
 
 ## 下一步（按顺序）
