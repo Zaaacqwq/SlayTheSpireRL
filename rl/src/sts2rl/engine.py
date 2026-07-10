@@ -7,6 +7,7 @@ from pathlib import Path
 import queue
 import subprocess
 import threading
+from collections import deque
 from typing import Any, Mapping, Sequence
 
 from .protocol import ActionCandidate, DecisionState, StepResult, SUPPORTED_PROTOCOL_VERSION, parse_state
@@ -39,6 +40,8 @@ class EngineClient:
         self._proc: subprocess.Popen[str] | None = None
         self._lines: queue.Queue[str | BaseException] = queue.Queue()
         self.version: str | None = None
+        self.trace: list[dict[str, Any]] = []
+        self.stderr_tail: deque[str] = deque(maxlen=80)
 
     def _start(self) -> None:
         self.close()
@@ -46,6 +49,7 @@ class EngineClient:
         self._proc = subprocess.Popen(self.command, cwd=self.cwd, env=self.env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
         assert self._proc.stdout is not None
         stream = self._proc.stdout
+        err_stream = self._proc.stderr
 
         def reader() -> None:
             try:
@@ -56,6 +60,11 @@ class EngineClient:
                 self._lines.put(exc)
 
         threading.Thread(target=reader, daemon=True).start()
+        def error_reader() -> None:
+            assert err_stream is not None
+            for line in err_stream:
+                self.stderr_tail.append(line.rstrip())
+        threading.Thread(target=error_reader, daemon=True).start()
         ready = self._read()
         if ready.get("type") != "ready":
             raise EngineError(f"expected ready handshake, got {ready!r}")
@@ -67,8 +76,9 @@ class EngineClient:
         try:
             item = self._lines.get(timeout=self.timeout)
         except queue.Empty as exc:
+            recent = self.trace[-5:]
             self._kill()
-            raise EngineTimeout(f"no JSON response within {self.timeout}s") from exc
+            raise EngineTimeout(f"no JSON response within {self.timeout}s; recent_trace={recent!r}; stderr_tail={list(self.stderr_tail)[-12:]!r}") from exc
         if isinstance(item, BaseException):
             raise EngineError("engine stdout reader failed") from item
         try:
@@ -90,12 +100,16 @@ class EngineClient:
 
     def reset(self, config: RunConfig) -> DecisionState:
         # start_run is expected to fully replace the previous run; M0 must verify this upstream.
-        raw = self._request({"cmd": "start_run", "character": config.character, "seed": config.seed, "ascension": config.ascension, "lang": config.lang})
+        command = {"cmd": "start_run", "character": config.character, "seed": config.seed, "ascension": config.ascension, "lang": config.lang}
+        self.trace = [command]
+        raw = self._request(command)
         return parse_state(raw)
 
     def step(self, action: ActionCandidate) -> StepResult:
         try:
-            state = parse_state(self._request(action.command()))
+            command = action.command()
+            self.trace.append(command)
+            state = parse_state(self._request(command))
             return StepResult(state, state.phase == "game_over")
         except EngineError:
             self._kill()
