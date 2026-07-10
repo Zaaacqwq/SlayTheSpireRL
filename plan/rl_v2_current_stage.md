@@ -16,6 +16,9 @@
 - [x] 同一持久 CLI 进程连续 reset Ironclad → Silent 均成功返回 `event_choice`；当前 submodule 工作树包含针对 v0.107.1 reset/初始化的未提交本地修改，需后续迁移到 MIT fork 并固定 commit。
 - [x] 真实引擎随机合法 rollout 已验证：Ironclad `m0-random-001` 经过 Neow、地图和战斗，前 10 steps 成功；第 11 step 在 10 秒内无响应，`EngineTimeout` 杀进程。该 episode 不计入成功率，trace 作为 M0 超时回归样本。
 - [x] 根据真实 JSON 将地图候选兼容为 `choices`，休息/事件选项兼容 `is_enabled`；协议 adapter 单测仍通过。
+- [x] 真实 schema 观察清单写入 `rl/schema/m0_observed_schema.json`；已观察 event、map、combat、card reward、shop、bundle/card select 和 game over，rest site 仍待真实样本。
+- [x] 1/4/8/16 worker steady benchmark（每 worker 50 steps）：20.48 / 73.14 / 122.81 / 140.20 decision steps/s；8 workers 达到 100 门槛，benchmark errors 为 0。
+- [x] 修复真实 card reward、shop、multi-select action names/组合；修复后五角色各 5 局 × 20 steps 全部无异常。
 
 ## 调查结果与未完成项
 
@@ -26,6 +29,7 @@
 - （已解决）游戏实际位于 `D:\steam\steamapps\common\Slay the Spire 2\data_sts2_windows_x86_64`；setup 的递归查找已正确复制 DLL。环境 doctor 现在全部通过。
 - 上游 `tests/test_characters.py tests/test_play.py` 组合运行在约 40 秒内未完成，已终止；尚未判定原因，也未计入成功样本。
 - 随机 rollout 的超时发生在战斗中连续合法动作之后，尚未确定是特定动作、CLI 引擎死锁还是 timeout 过短；需要保留 stderr、动作 trace 并用最小复现 seed 定位。
+- 首轮五角色各 20 局（修复前）出现 `choose_card`/multi-select 协议错误；修复后复测已清零，但仍需完成各 20 局最终样本。
 - 已为 `EngineClient` 增加最近动作 trace 与 stderr tail；同一 seed 的后续 20-step 重跑未再次超时，说明问题可能与动作/引擎时序相关，仍需多次重复和进程恢复统计。
 - `card_select` 多选组合、药水目标、商店移除选牌等动作需用真实状态样本确认，不能提前宣称合法动作覆盖完整。
 
@@ -40,4 +44,4 @@
 
 ## M0 验收记录
 
-尚无正式实验。门槛仍为：8 workers ≥100 decision steps/s；五角色随机合法 agent 各 ≥20 局；崩溃率 <0.1%；非法动作率 0。运行 `python -m sts2rl.m0 --root .` 可检查本机先决条件；返回码 2 表示未就绪。
+部分门槛已通过：8 workers steady benchmark 122.81 decision steps/s、benchmark errors 0；五角色各 5 局修复后短测无异常。最终门槛仍为：五角色随机合法 agent 各 ≥20 局；崩溃率 <0.1%；非法动作率 0。运行 `python -m sts2rl.m0 --root .` 可检查本机先决条件；返回码 2 表示未就绪。

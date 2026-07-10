@@ -22,3 +22,10 @@ def test_unknown_phase_is_not_silently_dropped():
 def test_map_requires_stable_coordinates():
     with pytest.raises(ProtocolError):
         legal_actions({"decision": "map_select", "available_nodes": [{"index": 0}]})
+
+
+def test_upstream_action_names_are_used():
+    reward = legal_actions({"decision": "card_reward", "cards": [{"index": 0}]})
+    assert reward[0].action == "select_card_reward"
+    shop = legal_actions({"decision": "shop", "cards": [], "relics": [], "potions": []})
+    assert shop[-1].action == "leave_room"

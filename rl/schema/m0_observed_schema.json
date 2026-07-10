@@ -1,0 +1,17 @@
+{
+  "source": "sts2-cli d11aa883b582dd68bd39b331f3370746b30d447e",
+  "protocol": "0.2.0",
+  "captured_on": "2026-07-10",
+  "observed_decisions": {
+    "event_choice": ["type", "decision", "context", "event_name", "description", "options", "player"],
+    "map_select": ["type", "decision", "context", "choices", "player", "act", "act_name", "floor"],
+    "combat_play": ["type", "decision", "context", "round", "energy", "max_energy", "hand", "enemies", "player", "player_powers", "draw_pile_count", "discard_pile_count"],
+    "card_reward": ["type", "decision", "context", "cards", "can_skip", "gold_earned", "player"],
+    "shop": ["type", "decision", "context", "cards", "relics", "potions", "card_removal_cost", "player"],
+    "bundle_select": "observed in character smoke runs; nested bundle fields require fixture capture",
+    "card_select": "observed in character smoke runs; selection fields require fixture capture",
+    "rest_site": "not yet observed in this capture",
+    "game_over": "observed for short Regent random runs"
+  },
+  "unknown_fields_policy": "preserve raw state; unknown decision phases fail closed"
+}

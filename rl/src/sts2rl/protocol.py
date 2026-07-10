@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+import itertools
 import json
 from typing import Any, Mapping
 
@@ -107,7 +108,7 @@ def legal_actions(state: Mapping[str, Any]) -> tuple[ActionCandidate, ...]:
             out.append(ActionCandidate("select_map_node", args))
     elif phase == "card_reward":
         for card in state.get("cards", state.get("options", [])):
-            out.append(ActionCandidate("choose_card", {"card_index": card["index"]}))
+            out.append(ActionCandidate("select_card_reward", {"card_index": card["index"]}))
         out.append(ActionCandidate("skip_card_reward", {}))
     elif phase in {"event_choice", "rest_site"}:
         for option in state.get("options", []):
@@ -117,12 +118,17 @@ def legal_actions(state: Mapping[str, Any]) -> tuple[ActionCandidate, ...]:
         for bundle in state.get("bundles", state.get("options", [])):
             out.append(ActionCandidate("select_bundle", {"bundle_index": bundle["index"]}))
     elif phase == "card_select":
-        if state.get("min_select", 0) == 0:
+        cards = state.get("cards", state.get("options", state.get("choices", [])))
+        min_select = int(state.get("min_select", 0))
+        max_select = int(state.get("max_select", 1))
+        if min_select == 0:
             out.append(ActionCandidate("skip_select", {}))
-        # Multi-card combinatorics are a known M0 protocol investigation item.
-        if state.get("max_select", 1) == 1:
-            for card in state.get("cards", []):
-                out.append(ActionCandidate("select_cards", {"indices": str(card["index"])}))
+        # The upstream protocol accepts comma-separated indices for multi-select.
+        # Bound combinations to the declared range; unknown larger ranges fail closed.
+        if cards and 0 < min_select <= max_select <= 4:
+            indices = [str(card["index"]) for card in cards]
+            for size in range(min_select, max_select + 1):
+                out.extend(ActionCandidate("select_cards", {"indices": ",".join(combo)}) for combo in itertools.combinations(indices, size))
     elif phase == "shop":
         for key, action, arg in (("cards", "buy_card", "card_index"), ("relics", "buy_relic", "relic_index"), ("potions", "buy_potion", "potion_index")):
             for item in state.get(key, []):
@@ -130,7 +136,7 @@ def legal_actions(state: Mapping[str, Any]) -> tuple[ActionCandidate, ...]:
                     out.append(ActionCandidate(action, {arg: item["index"]}))
         if state.get("can_remove_card", False):
             out.append(ActionCandidate("remove_card", {}))
-        out.append(ActionCandidate("leave_shop", {}))
+        out.append(ActionCandidate("leave_room", {}))
     if not out:
         raise ProtocolError(f"no legal actions derived for {phase!r}")
     return tuple(out)
