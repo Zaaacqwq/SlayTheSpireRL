@@ -69,6 +69,7 @@ M0 验收已达到当前定义门槛：8 workers steady benchmark 122.81 decisio
 - `ParticleWall` 的“卡仍在手牌”假错误已在本地 sts2-cli 适配中移除；Regent-76 回归已不再产生 ProtocolError。
 - Necrobinder-32、Regent-29、Regent-74 的 timeout 均发生在 nested card-select：stderr 显示第一次选择已 resolve，游戏马上创建第二个 pending selector，但 CLI 没有返回第二个 JSON decision。已尝试避免 inline continuation 和同步 pump，仍需在 sts2-cli 的同步上下文/selector 生命周期中继续修复。
 - 已将 nested-selector 与 transient card-play 补丁固定为本地 fork commit `906751c5ddd4e30aa16bf899ac1962c729a38293`；该 commit 尚需 3 个 seed 回归确认后才能宣称 M1 通过。
+- 已创建 submodule 本地分支 `rl-v2-protocol-state-machine`，后续改动只进入该 fork；状态机设计见 `docs/RL_V2_CLI_STATE_MACHINE.md`。
 
 ## M1 下一步
 
