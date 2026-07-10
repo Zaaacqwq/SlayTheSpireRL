@@ -64,6 +64,11 @@ M0 验收已达到当前定义门槛：8 workers steady benchmark 122.81 decisio
 - [x] BC update、PPO update、GAE、Recurrent GRU candidate policy 和 checkpoint/resume 初版。
 - [ ] 清零 5 个真实引擎异常、完成 seed isolation/episode pollution 长测后才能通过 M1。
 
+### M1 异常修复记录
+
+- `ParticleWall` 的“卡仍在手牌”假错误已在本地 sts2-cli 适配中移除；Regent-76 回归已不再产生 ProtocolError。
+- Necrobinder-32、Regent-29、Regent-74 的 timeout 均发生在 nested card-select：stderr 显示第一次选择已 resolve，游戏马上创建第二个 pending selector，但 CLI 没有返回第二个 JSON decision。已尝试避免 inline continuation 和同步 pump，仍需在 sts2-cli 的同步上下文/selector 生命周期中继续修复。
+
 ## M1 下一步
 
 先实现 evaluator 和 trajectory 采集，再实现模型与 loss；所有训练实验必须同步记录 commit、配置、seed hash、checkpoint 和结果。
