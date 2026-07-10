@@ -1,0 +1,1807 @@
+{
+  "_meta": {
+    "source": "Converted from the spire-codex live API (https://spire-codex.com, https://github.com/ptrlrd/spire-codex) via convert_from_spire_codex.py on 2026-07-10, filtered to color=='ironclad'. spire-codex's data is reverse-engineered from Slay the Spire 2's own decompiled game files (GDRE Tools PCK extraction + ILSpy decompilation of sts2.dll), not hand-transcribed from gameplay.",
+    "license": "PolyForm Noncommercial License 1.0.0. Required Notice: Copyright (C) 2025-present Peter Lord and Spire Codex contributors. https://polyformproject.org/licenses/noncommercial/1.0.0 -- this data (and any model trained on it) is NONCOMMERCIAL USE ONLY.",
+    "scope_limitation": "As of Stage 2 (2026-07-10), includes a data-driven triggered-Power system (turn-start / on-exhaust / on-HP-lost-this-turn / on-block-gained / on-Vulnerable-applied hooks) covering 14 Power-type cards and a generic `conditional` if/then/else wrapper covering 'this turn' condition cards. Still excludes: recursive auto-play (Stampede/Havoc/Hellraiser/Howl from Beyond), dynamic card costs (Corruption/Stomp), card-instance-persistent damage scaling (Rampage), 'next card played' pending modifiers (One Two Punch/Unrelenting/Rage), card-spawning effects, RandomEnemy/AnyAlly targeting, X-cost cards, and any card whose description implies a mechanic beyond the above (verified via both a complex-mechanic text-pattern denylist and a systematic unconsumed-numeric-var check -- see convert_from_spire_codex.py). See the 'excluded' list in _conversion_report_<color>.json for every excluded card and why.",
+    "effect_schema": {
+      "damage": "Deal `amount` damage to the target, `hits` times (default 1).",
+      "damage_all": "Deal `amount` damage to every enemy, `hits` times (default 1).",
+      "damage_equals_block": "Deal damage to target equal to the player's current block.",
+      "damage_double_if_target_vulnerable": "Deal `amount` damage; if target has Vulnerable, deal it again (two separate hits).",
+      "damage_scales_with_tag": "Deal `base` + `per_tag` * (count of cards in the player's whole deck whose name contains `tag`) damage.",
+      "block": "Gain `amount` block.",
+      "draw": "Draw `amount` cards.",
+      "gain_energy": "Gain `amount` energy this turn.",
+      "lose_hp": "Lose `amount` HP directly (not blocked).",
+      "apply_vulnerable": "Apply `amount` stacks of Vulnerable to the target.",
+      "apply_vulnerable_all": "Apply `amount` stacks of Vulnerable to every enemy.",
+      "apply_weak": "Apply `amount` stacks of Weak to the target.",
+      "gain_strength": "Gain `amount` Strength permanently (for the rest of combat).",
+      "gain_strength_this_turn": "Gain `amount` Strength for the remainder of the current turn only.",
+      "exhaust_random_from_hand": "Exhaust one random other card from hand.",
+      "upgrade_random_card_in_hand": "Upgrade one random not-yet-upgraded card in hand for the rest of combat.",
+      "move_card_discard_to_draw_top": "Move one random card from the discard pile to the top of the draw pile.",
+      "gain_power": "Grant a persistent Power (`power_id`) for the rest of combat, with an optional `triggers` dict (event name -> effects list, or \"magnitude\" -> int for continuously-checked powers like Cruelty).",
+      "conditional": "If `if` (a named this-turn/this-combat condition) is true, apply the `then` effects list, else the optional `else` list.",
+      "damage_random_enemy": "Deal `amount` damage to one random living enemy.",
+      "damage_scales_with_pile_count": "Deal `base` + `per_card` * (size of `pile`, e.g. \"exhaust_pile\") damage.",
+      "enemy_lose_strength_this_turn": "Reduce the target enemy's effective Strength by `amount` until its next turn resolves.",
+      "double_target_vulnerable": "Double the target's current Vulnerable stacks.",
+      "set_no_draw_this_turn": "Block any further `draw`/`draw_until_non_attack` effects for the rest of this turn.",
+      "return_random_attack_from_discard_upgraded": "Move one random Attack from the discard pile into hand, upgraded.",
+      "exhaust_hand_and_damage": "Exhaust the rest of the hand, then deal `per_card` damage to target for each card exhausted this way.",
+      "exhaust_hand_filtered_and_block": "Exhaust hand cards matching `filter` (currently only \"non_attack\"), then gain `per_card` block for each.",
+      "exhaust_random_attack_and_add_damage": "Exhaust one random other Attack from hand and add its own base damage to this card's `base` damage, dealt `hits` times.",
+      "draw_until_non_attack": "Draw one card at a time until a non-Attack card is drawn (or hand/piles are exhausted)."
+    }
+  },
+  "cards": [
+    {
+      "id": "AGGRESSION",
+      "name": "Aggression",
+      "type": "Power",
+      "rarity": "Rare",
+      "cost": 1,
+      "target": "self",
+      "effects": [
+        {
+          "type": "gain_power",
+          "power_id": "AGGRESSION",
+          "triggers": {
+            "turn_start": [
+              {
+                "type": "return_random_attack_from_discard_upgraded"
+              }
+            ]
+          }
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "gain_power",
+          "power_id": "AGGRESSION",
+          "triggers": {
+            "turn_start": [
+              {
+                "type": "return_random_attack_from_discard_upgraded"
+              }
+            ]
+          }
+        }
+      ],
+      "source_description": "At the start of your turn, put a random Attack from your [gold]Discard Pile[/gold] into your [gold]Hand[/gold] and [gold]Upgrade[/gold] it.",
+      "source_description_upgraded": "At the start of your turn, put a random Attack from your [gold]Discard Pile[/gold] into your [gold]Hand[/gold] and [gold]Upgrade[/gold] it."
+    },
+    {
+      "id": "ARMAMENTS",
+      "name": "Armaments",
+      "type": "Skill",
+      "rarity": "Common",
+      "cost": 1,
+      "target": "self",
+      "effects": [
+        {
+          "type": "block",
+          "amount": 5
+        },
+        {
+          "type": "upgrade_random_card_in_hand",
+          "all": false
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "block",
+          "amount": 5
+        },
+        {
+          "type": "upgrade_random_card_in_hand",
+          "all": true
+        }
+      ],
+      "source_description": "Gain 5 [gold]Block[/gold].\n[gold]Upgrade[/gold] a card in your [gold]Hand[/gold].",
+      "source_description_upgraded": "Gain 5 [gold]Block[/gold].\n[gold]Upgrade[/gold] ALL cards in your [gold]Hand[/gold]."
+    },
+    {
+      "id": "ASHEN_STRIKE",
+      "name": "Ashen Strike",
+      "type": "Attack",
+      "rarity": "Uncommon",
+      "cost": 1,
+      "target": "single_enemy",
+      "effects": [
+        {
+          "type": "damage_scales_with_pile_count",
+          "pile": "exhaust_pile",
+          "base": 6,
+          "per_card": 3
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "damage_scales_with_pile_count",
+          "pile": "exhaust_pile",
+          "base": 6,
+          "per_card": 4
+        }
+      ],
+      "source_description": "Deal 6 damage.\nDeals 3 additional damage for each card in your [gold]Exhaust Pile[/gold].",
+      "source_description_upgraded": "Deal 6 damage.\nDeals 4 additional damage for each card in your [gold]Exhaust Pile[/gold]."
+    },
+    {
+      "id": "BARRICADE",
+      "name": "Barricade",
+      "type": "Power",
+      "rarity": "Rare",
+      "cost": 3,
+      "target": "self",
+      "effects": [
+        {
+          "type": "gain_power",
+          "power_id": "BARRICADE"
+        }
+      ],
+      "upgraded_cost": 2,
+      "effects_upgraded": [
+        {
+          "type": "gain_power",
+          "power_id": "BARRICADE"
+        }
+      ],
+      "source_description": "[gold]Block[/gold] is not removed at the start of your turn.",
+      "source_description_upgraded": "[gold]Block[/gold] is not removed at the start of your turn."
+    },
+    {
+      "id": "BASH",
+      "name": "Bash",
+      "type": "Attack",
+      "rarity": "Basic",
+      "cost": 2,
+      "target": "single_enemy",
+      "effects": [
+        {
+          "type": "damage",
+          "amount": 8,
+          "hits": 1
+        },
+        {
+          "type": "apply_vulnerable",
+          "amount": 2
+        }
+      ],
+      "upgraded_cost": 2,
+      "effects_upgraded": [
+        {
+          "type": "damage",
+          "amount": 10,
+          "hits": 1
+        },
+        {
+          "type": "apply_vulnerable",
+          "amount": 2
+        }
+      ],
+      "source_description": "Deal 8 damage.\nApply 2 [gold]Vulnerable[/gold].",
+      "source_description_upgraded": "Deal 10 damage.\nApply 3 [gold]Vulnerable[/gold]."
+    },
+    {
+      "id": "BATTLE_TRANCE",
+      "name": "Battle Trance",
+      "type": "Skill",
+      "rarity": "Uncommon",
+      "cost": 0,
+      "target": "self",
+      "effects": [
+        {
+          "type": "draw",
+          "amount": 3
+        },
+        {
+          "type": "set_no_draw_this_turn"
+        }
+      ],
+      "upgraded_cost": 0,
+      "effects_upgraded": [
+        {
+          "type": "draw",
+          "amount": 4
+        },
+        {
+          "type": "set_no_draw_this_turn"
+        }
+      ],
+      "source_description": "Draw 3 cards.\nYou cannot draw additional cards this turn.",
+      "source_description_upgraded": "Draw 4 cards.\nYou cannot draw additional cards this turn."
+    },
+    {
+      "id": "BLOOD_WALL",
+      "name": "Blood Wall",
+      "type": "Skill",
+      "rarity": "Common",
+      "cost": 2,
+      "target": "self",
+      "effects": [
+        {
+          "type": "block",
+          "amount": 16
+        },
+        {
+          "type": "lose_hp",
+          "amount": 2
+        }
+      ],
+      "upgraded_cost": 2,
+      "effects_upgraded": [
+        {
+          "type": "block",
+          "amount": 20
+        },
+        {
+          "type": "lose_hp",
+          "amount": 2
+        }
+      ],
+      "source_description": "Lose 2 HP.\nGain 16 [gold]Block[/gold].",
+      "source_description_upgraded": "Lose 2 HP.\nGain 20 [gold]Block[/gold]."
+    },
+    {
+      "id": "BLOODLETTING",
+      "name": "Bloodletting",
+      "type": "Skill",
+      "rarity": "Common",
+      "cost": 0,
+      "target": "self",
+      "effects": [
+        {
+          "type": "gain_energy",
+          "amount": 2
+        },
+        {
+          "type": "lose_hp",
+          "amount": 3
+        }
+      ],
+      "upgraded_cost": 0,
+      "effects_upgraded": [
+        {
+          "type": "gain_energy",
+          "amount": 3
+        },
+        {
+          "type": "lose_hp",
+          "amount": 3
+        }
+      ],
+      "source_description": "Lose 3 HP.\nGain [energy:2].",
+      "source_description_upgraded": "Lose 3 HP.\nGain [energy:3]."
+    },
+    {
+      "id": "BLUDGEON",
+      "name": "Bludgeon",
+      "type": "Attack",
+      "rarity": "Uncommon",
+      "cost": 3,
+      "target": "single_enemy",
+      "effects": [
+        {
+          "type": "damage",
+          "amount": 32,
+          "hits": 1
+        }
+      ],
+      "upgraded_cost": 3,
+      "effects_upgraded": [
+        {
+          "type": "damage",
+          "amount": 42,
+          "hits": 1
+        }
+      ],
+      "source_description": "Deal 32 damage.",
+      "source_description_upgraded": "Deal 42 damage."
+    },
+    {
+      "id": "BODY_SLAM",
+      "name": "Body Slam",
+      "type": "Attack",
+      "rarity": "Common",
+      "cost": 1,
+      "target": "single_enemy",
+      "effects": [
+        {
+          "type": "damage_equals_block"
+        }
+      ],
+      "upgraded_cost": 0,
+      "effects_upgraded": [
+        {
+          "type": "damage_equals_block"
+        }
+      ],
+      "source_description": "Deal damage equal to your [gold]Block[/gold].",
+      "source_description_upgraded": "Deal damage equal to your [gold]Block[/gold]."
+    },
+    {
+      "id": "BREAK",
+      "name": "Break",
+      "type": "Attack",
+      "rarity": "Ancient",
+      "cost": 1,
+      "target": "single_enemy",
+      "effects": [
+        {
+          "type": "damage",
+          "amount": 20,
+          "hits": 1
+        },
+        {
+          "type": "apply_vulnerable",
+          "amount": 5
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "damage",
+          "amount": 30,
+          "hits": 1
+        },
+        {
+          "type": "apply_vulnerable",
+          "amount": 5
+        }
+      ],
+      "source_description": "Deal 20 damage.\nApply 5 [gold]Vulnerable[/gold].",
+      "source_description_upgraded": "Deal 30 damage.\nApply 7 [gold]Vulnerable[/gold]."
+    },
+    {
+      "id": "BREAKTHROUGH",
+      "name": "Breakthrough",
+      "type": "Attack",
+      "rarity": "Common",
+      "cost": 1,
+      "target": "all_enemies",
+      "effects": [
+        {
+          "type": "damage_all",
+          "amount": 9,
+          "hits": 1
+        },
+        {
+          "type": "lose_hp",
+          "amount": 1
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "damage_all",
+          "amount": 13,
+          "hits": 1
+        },
+        {
+          "type": "lose_hp",
+          "amount": 1
+        }
+      ],
+      "source_description": "Lose 1 HP.\nDeal 9 damage to ALL enemies.",
+      "source_description_upgraded": "Lose 1 HP.\nDeal 13 damage to ALL enemies."
+    },
+    {
+      "id": "CINDER",
+      "name": "Cinder",
+      "type": "Attack",
+      "rarity": "Common",
+      "cost": 2,
+      "target": "single_enemy",
+      "effects": [
+        {
+          "type": "damage",
+          "amount": 18,
+          "hits": 1
+        },
+        {
+          "type": "exhaust_random_from_hand"
+        }
+      ],
+      "upgraded_cost": 2,
+      "effects_upgraded": [
+        {
+          "type": "damage",
+          "amount": 24,
+          "hits": 1
+        },
+        {
+          "type": "exhaust_random_from_hand"
+        }
+      ],
+      "source_description": "Deal 18 damage.\n[gold]Exhaust[/gold] 1 card at random.",
+      "source_description_upgraded": "Deal 24 damage.\n[gold]Exhaust[/gold] 1 card at random."
+    },
+    {
+      "id": "CRIMSON_MANTLE",
+      "name": "Crimson Mantle",
+      "type": "Power",
+      "rarity": "Rare",
+      "cost": 1,
+      "target": "self",
+      "effects": [
+        {
+          "type": "gain_power",
+          "power_id": "CRIMSON_MANTLE",
+          "triggers": {
+            "turn_start": [
+              {
+                "type": "lose_hp",
+                "amount": 1
+              },
+              {
+                "type": "block",
+                "amount": 8
+              }
+            ]
+          }
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "gain_power",
+          "power_id": "CRIMSON_MANTLE",
+          "triggers": {
+            "turn_start": [
+              {
+                "type": "lose_hp",
+                "amount": 1
+              },
+              {
+                "type": "block",
+                "amount": 10
+              }
+            ]
+          }
+        }
+      ],
+      "source_description": "At the start of your turn, lose 1 HP and gain 8 [gold]Block[/gold].",
+      "source_description_upgraded": "At the start of your turn, lose 1 HP and gain 10 [gold]Block[/gold]."
+    },
+    {
+      "id": "CRUELTY",
+      "name": "Cruelty",
+      "type": "Power",
+      "rarity": "Rare",
+      "cost": 1,
+      "target": "self",
+      "effects": [
+        {
+          "type": "gain_power",
+          "power_id": "CRUELTY",
+          "triggers": {
+            "magnitude": 25
+          }
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "gain_power",
+          "power_id": "CRUELTY",
+          "triggers": {
+            "magnitude": 50
+          }
+        }
+      ],
+      "source_description": "[gold]Vulnerable[/gold] enemies take an additional 25% damage.",
+      "source_description_upgraded": "[gold]Vulnerable[/gold] enemies take an additional 50% damage."
+    },
+    {
+      "id": "DARK_EMBRACE",
+      "name": "Dark Embrace",
+      "type": "Power",
+      "rarity": "Rare",
+      "cost": 2,
+      "target": "self",
+      "effects": [
+        {
+          "type": "gain_power",
+          "power_id": "DARK_EMBRACE",
+          "triggers": {
+            "on_exhaust": [
+              {
+                "type": "draw",
+                "amount": 1
+              }
+            ]
+          }
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "gain_power",
+          "power_id": "DARK_EMBRACE",
+          "triggers": {
+            "on_exhaust": [
+              {
+                "type": "draw",
+                "amount": 1
+              }
+            ]
+          }
+        }
+      ],
+      "source_description": "Whenever a card is [gold]Exhausted[/gold],\ndraw 1 card.",
+      "source_description_upgraded": "Whenever a card is [gold]Exhausted[/gold],\ndraw 1 card."
+    },
+    {
+      "id": "DEFEND_IRONCLAD",
+      "name": "Defend",
+      "type": "Skill",
+      "rarity": "Basic",
+      "cost": 1,
+      "target": "self",
+      "effects": [
+        {
+          "type": "block",
+          "amount": 5
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "block",
+          "amount": 8
+        }
+      ],
+      "source_description": "Gain 5 [gold]Block[/gold].",
+      "source_description_upgraded": "Gain 8 [gold]Block[/gold]."
+    },
+    {
+      "id": "DEMON_FORM",
+      "name": "Demon Form",
+      "type": "Power",
+      "rarity": "Rare",
+      "cost": 3,
+      "target": "self",
+      "effects": [
+        {
+          "type": "gain_power",
+          "power_id": "DEMON_FORM",
+          "triggers": {
+            "turn_start": [
+              {
+                "type": "gain_strength",
+                "amount": 2
+              }
+            ]
+          }
+        }
+      ],
+      "upgraded_cost": 3,
+      "effects_upgraded": [
+        {
+          "type": "gain_power",
+          "power_id": "DEMON_FORM",
+          "triggers": {
+            "turn_start": [
+              {
+                "type": "gain_strength",
+                "amount": 3
+              }
+            ]
+          }
+        }
+      ],
+      "source_description": "At the start of your turn, gain 2 [gold]Strength[/gold].",
+      "source_description_upgraded": "At the start of your turn, gain 3 [gold]Strength[/gold]."
+    },
+    {
+      "id": "DISMANTLE",
+      "name": "Dismantle",
+      "type": "Attack",
+      "rarity": "Uncommon",
+      "cost": 1,
+      "target": "single_enemy",
+      "effects": [
+        {
+          "type": "damage_double_if_target_vulnerable",
+          "amount": 8
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "damage_double_if_target_vulnerable",
+          "amount": 10
+        }
+      ],
+      "source_description": "Deal 8 damage.\nIf the enemy is [gold]Vulnerable[/gold], hits twice.",
+      "source_description_upgraded": "Deal 10 damage.\nIf the enemy is [gold]Vulnerable[/gold], hits twice."
+    },
+    {
+      "id": "DRUM_OF_BATTLE",
+      "name": "Drum of Battle",
+      "type": "Skill",
+      "rarity": "Uncommon",
+      "cost": 1,
+      "target": "self",
+      "effects": [
+        {
+          "type": "draw",
+          "amount": 2
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "draw",
+          "amount": 2
+        }
+      ],
+      "source_description": "Draw 2 cards.\nWhen this card is [gold]Exhausted[/gold], gain [energy:2].",
+      "source_description_upgraded": "Draw 2 cards.\nWhen this card is [gold]Exhausted[/gold], gain [energy:3].",
+      "on_exhaust_effects": [
+        {
+          "type": "gain_energy",
+          "amount": 2
+        }
+      ],
+      "on_exhaust_effects_upgraded": [
+        {
+          "type": "gain_energy",
+          "amount": 3
+        }
+      ]
+    },
+    {
+      "id": "EVIL_EYE",
+      "name": "Evil Eye",
+      "type": "Skill",
+      "rarity": "Uncommon",
+      "cost": 1,
+      "target": "self",
+      "effects": [
+        {
+          "type": "block",
+          "amount": 8
+        },
+        {
+          "type": "conditional",
+          "if": "exhausted_this_turn",
+          "then": [
+            {
+              "type": "block",
+              "amount": 8
+            }
+          ]
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "block",
+          "amount": 11
+        },
+        {
+          "type": "conditional",
+          "if": "exhausted_this_turn",
+          "then": [
+            {
+              "type": "block",
+              "amount": 11
+            }
+          ]
+        }
+      ],
+      "source_description": "Gain 8 [gold]Block[/gold].\nGain another 8 [gold]Block[/gold] if you have [gold]Exhausted[/gold] a card this turn.",
+      "source_description_upgraded": "Gain 11 [gold]Block[/gold].\nGain another 11 [gold]Block[/gold] if you have [gold]Exhausted[/gold] a card this turn."
+    },
+    {
+      "id": "FEEL_NO_PAIN",
+      "name": "Feel No Pain",
+      "type": "Power",
+      "rarity": "Uncommon",
+      "cost": 1,
+      "target": "self",
+      "effects": [
+        {
+          "type": "gain_power",
+          "power_id": "FEEL_NO_PAIN",
+          "triggers": {
+            "on_exhaust": [
+              {
+                "type": "block",
+                "amount": 3
+              }
+            ]
+          }
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "gain_power",
+          "power_id": "FEEL_NO_PAIN",
+          "triggers": {
+            "on_exhaust": [
+              {
+                "type": "block",
+                "amount": 4
+              }
+            ]
+          }
+        }
+      ],
+      "source_description": "Whenever a card is [gold]Exhausted[/gold], gain 3 [gold]Block[/gold].",
+      "source_description_upgraded": "Whenever a card is [gold]Exhausted[/gold], gain 4 [gold]Block[/gold]."
+    },
+    {
+      "id": "FIEND_FIRE",
+      "name": "Fiend Fire",
+      "type": "Attack",
+      "rarity": "Rare",
+      "cost": 2,
+      "target": "single_enemy",
+      "effects": [
+        {
+          "type": "exhaust_hand_and_damage",
+          "per_card": 7
+        }
+      ],
+      "upgraded_cost": 2,
+      "effects_upgraded": [
+        {
+          "type": "exhaust_hand_and_damage",
+          "per_card": 10
+        }
+      ],
+      "source_description": "[gold]Exhaust[/gold] your [gold]Hand[/gold].\nDeal 7 damage for each card [gold]Exhausted[/gold].",
+      "source_description_upgraded": "[gold]Exhaust[/gold] your [gold]Hand[/gold].\nDeal 10 damage for each card [gold]Exhausted[/gold].",
+      "self_exhausts": true
+    },
+    {
+      "id": "FORGOTTEN_RITUAL",
+      "name": "Forgotten Ritual",
+      "type": "Skill",
+      "rarity": "Uncommon",
+      "cost": 1,
+      "target": "self",
+      "effects": [
+        {
+          "type": "conditional",
+          "if": "exhausted_this_turn",
+          "then": [
+            {
+              "type": "gain_energy",
+              "amount": 3
+            }
+          ]
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "conditional",
+          "if": "exhausted_this_turn",
+          "then": [
+            {
+              "type": "gain_energy",
+              "amount": 4
+            }
+          ]
+        }
+      ],
+      "source_description": "If you [gold]Exhausted[/gold] a card this turn, gain [energy:3].",
+      "source_description_upgraded": "If you [gold]Exhausted[/gold] a card this turn, gain [energy:4].",
+      "self_exhausts": true
+    },
+    {
+      "id": "HEADBUTT",
+      "name": "Headbutt",
+      "type": "Attack",
+      "rarity": "Common",
+      "cost": 1,
+      "target": "single_enemy",
+      "effects": [
+        {
+          "type": "damage",
+          "amount": 9,
+          "hits": 1
+        },
+        {
+          "type": "move_card_discard_to_draw_top"
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "damage",
+          "amount": 12,
+          "hits": 1
+        },
+        {
+          "type": "move_card_discard_to_draw_top"
+        }
+      ],
+      "source_description": "Deal 9 damage.\nPut a card from your [gold]Discard Pile[/gold] on top of your [gold]Draw Pile[/gold].",
+      "source_description_upgraded": "Deal 12 damage.\nPut a card from your [gold]Discard Pile[/gold] on top of your [gold]Draw Pile[/gold]."
+    },
+    {
+      "id": "HEMOKINESIS",
+      "name": "Hemokinesis",
+      "type": "Attack",
+      "rarity": "Uncommon",
+      "cost": 1,
+      "target": "single_enemy",
+      "effects": [
+        {
+          "type": "damage",
+          "amount": 15,
+          "hits": 1
+        },
+        {
+          "type": "lose_hp",
+          "amount": 2
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "damage",
+          "amount": 20,
+          "hits": 1
+        },
+        {
+          "type": "lose_hp",
+          "amount": 2
+        }
+      ],
+      "source_description": "Lose 2 HP.\nDeal 15 damage.",
+      "source_description_upgraded": "Lose 2 HP.\nDeal 20 damage."
+    },
+    {
+      "id": "IMPERVIOUS",
+      "name": "Impervious",
+      "type": "Skill",
+      "rarity": "Rare",
+      "cost": 2,
+      "target": "self",
+      "effects": [
+        {
+          "type": "block",
+          "amount": 30
+        }
+      ],
+      "upgraded_cost": 2,
+      "effects_upgraded": [
+        {
+          "type": "block",
+          "amount": 40
+        }
+      ],
+      "source_description": "Gain 30 [gold]Block[/gold].",
+      "source_description_upgraded": "Gain 40 [gold]Block[/gold].",
+      "self_exhausts": true
+    },
+    {
+      "id": "INFERNO",
+      "name": "Inferno",
+      "type": "Power",
+      "rarity": "Uncommon",
+      "cost": 1,
+      "target": "self",
+      "effects": [
+        {
+          "type": "gain_power",
+          "power_id": "INFERNO",
+          "triggers": {
+            "turn_start": [
+              {
+                "type": "lose_hp",
+                "amount": 1
+              }
+            ],
+            "hp_lost_own_turn": [
+              {
+                "type": "damage_all",
+                "amount": 6,
+                "hits": 1
+              }
+            ]
+          }
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "gain_power",
+          "power_id": "INFERNO",
+          "triggers": {
+            "turn_start": [
+              {
+                "type": "lose_hp",
+                "amount": 1
+              }
+            ],
+            "hp_lost_own_turn": [
+              {
+                "type": "damage_all",
+                "amount": 9,
+                "hits": 1
+              }
+            ]
+          }
+        }
+      ],
+      "source_description": "At the start of your turn, lose 1 HP.\nWhenever you lose HP on your turn, deal 6 damage to ALL enemies.",
+      "source_description_upgraded": "At the start of your turn, lose 1 HP.\nWhenever you lose HP on your turn, deal 9 damage to ALL enemies."
+    },
+    {
+      "id": "INFLAME",
+      "name": "Inflame",
+      "type": "Power",
+      "rarity": "Uncommon",
+      "cost": 1,
+      "target": "self",
+      "effects": [
+        {
+          "type": "gain_strength",
+          "amount": 2
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "gain_strength",
+          "amount": 3
+        }
+      ],
+      "source_description": "Gain 2 [gold]Strength[/gold].",
+      "source_description_upgraded": "Gain 3 [gold]Strength[/gold]."
+    },
+    {
+      "id": "IRON_WAVE",
+      "name": "Iron Wave",
+      "type": "Attack",
+      "rarity": "Common",
+      "cost": 1,
+      "target": "single_enemy",
+      "effects": [
+        {
+          "type": "damage",
+          "amount": 5,
+          "hits": 1
+        },
+        {
+          "type": "block",
+          "amount": 5
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "damage",
+          "amount": 7,
+          "hits": 1
+        },
+        {
+          "type": "block",
+          "amount": 7
+        }
+      ],
+      "source_description": "Gain 5 [gold]Block[/gold].\nDeal 5 damage.",
+      "source_description_upgraded": "Gain 7 [gold]Block[/gold].\nDeal 7 damage."
+    },
+    {
+      "id": "JUGGERNAUT",
+      "name": "Juggernaut",
+      "type": "Power",
+      "rarity": "Rare",
+      "cost": 2,
+      "target": "self",
+      "effects": [
+        {
+          "type": "gain_power",
+          "power_id": "JUGGERNAUT",
+          "triggers": {
+            "block_gained": [
+              {
+                "type": "damage_random_enemy",
+                "amount": 6
+              }
+            ]
+          }
+        }
+      ],
+      "upgraded_cost": 2,
+      "effects_upgraded": [
+        {
+          "type": "gain_power",
+          "power_id": "JUGGERNAUT",
+          "triggers": {
+            "block_gained": [
+              {
+                "type": "damage_random_enemy",
+                "amount": 8
+              }
+            ]
+          }
+        }
+      ],
+      "source_description": "Whenever you gain [gold]Block[/gold], deal 6 damage to a random enemy.",
+      "source_description_upgraded": "Whenever you gain [gold]Block[/gold], deal 8 damage to a random enemy."
+    },
+    {
+      "id": "MANGLE",
+      "name": "Mangle",
+      "type": "Attack",
+      "rarity": "Rare",
+      "cost": 3,
+      "target": "single_enemy",
+      "effects": [
+        {
+          "type": "damage",
+          "amount": 15,
+          "hits": 1
+        },
+        {
+          "type": "enemy_lose_strength_this_turn",
+          "amount": 10
+        }
+      ],
+      "upgraded_cost": 3,
+      "effects_upgraded": [
+        {
+          "type": "damage",
+          "amount": 20,
+          "hits": 1
+        },
+        {
+          "type": "enemy_lose_strength_this_turn",
+          "amount": 15
+        }
+      ],
+      "source_description": "Deal 15 damage.\nEnemy loses 10 [gold]Strength[/gold] this turn.",
+      "source_description_upgraded": "Deal 20 damage.\nEnemy loses 15 [gold]Strength[/gold] this turn."
+    },
+    {
+      "id": "MOLTEN_FIST",
+      "name": "Molten Fist",
+      "type": "Attack",
+      "rarity": "Common",
+      "cost": 1,
+      "target": "single_enemy",
+      "effects": [
+        {
+          "type": "damage",
+          "amount": 10,
+          "hits": 1
+        },
+        {
+          "type": "double_target_vulnerable"
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "damage",
+          "amount": 14,
+          "hits": 1
+        },
+        {
+          "type": "double_target_vulnerable"
+        }
+      ],
+      "source_description": "Deal 10 damage.\nDouble the enemy's [gold]Vulnerable[/gold].",
+      "source_description_upgraded": "Deal 14 damage.\nDouble the enemy's [gold]Vulnerable[/gold].",
+      "self_exhausts": true
+    },
+    {
+      "id": "OFFERING",
+      "name": "Offering",
+      "type": "Skill",
+      "rarity": "Rare",
+      "cost": 0,
+      "target": "self",
+      "effects": [
+        {
+          "type": "draw",
+          "amount": 3
+        },
+        {
+          "type": "gain_energy",
+          "amount": 2
+        },
+        {
+          "type": "lose_hp",
+          "amount": 6
+        }
+      ],
+      "upgraded_cost": 0,
+      "effects_upgraded": [
+        {
+          "type": "draw",
+          "amount": 5
+        },
+        {
+          "type": "gain_energy",
+          "amount": 2
+        },
+        {
+          "type": "lose_hp",
+          "amount": 6
+        }
+      ],
+      "source_description": "Lose 6 HP.\nGain [energy:2].\nDraw 3 cards.",
+      "source_description_upgraded": "Lose 6 HP.\nGain [energy:2].\nDraw 5 cards.",
+      "self_exhausts": true
+    },
+    {
+      "id": "PACTS_END",
+      "name": "Pact's End",
+      "type": "Attack",
+      "rarity": "Rare",
+      "cost": 0,
+      "target": "all_enemies",
+      "effects": [
+        {
+          "type": "conditional",
+          "if": "exhaust_pile_size_gte_3",
+          "then": [
+            {
+              "type": "damage_all",
+              "amount": 17,
+              "hits": 1
+            }
+          ]
+        }
+      ],
+      "upgraded_cost": 0,
+      "effects_upgraded": [
+        {
+          "type": "conditional",
+          "if": "exhaust_pile_size_gte_3",
+          "then": [
+            {
+              "type": "damage_all",
+              "amount": 23,
+              "hits": 1
+            }
+          ]
+        }
+      ],
+      "source_description": "If you have 3 or more cards in your [gold]Exhaust Pile[/gold],\ndeal 17 damage to ALL enemies.",
+      "source_description_upgraded": "If you have 3 or more cards in your [gold]Exhaust Pile[/gold],\ndeal 23 damage to ALL enemies."
+    },
+    {
+      "id": "PERFECTED_STRIKE",
+      "name": "Perfected Strike",
+      "type": "Attack",
+      "rarity": "Common",
+      "cost": 2,
+      "target": "single_enemy",
+      "effects": [
+        {
+          "type": "damage_scales_with_tag",
+          "base": 6,
+          "per_tag": 2,
+          "tag": "Strike"
+        }
+      ],
+      "upgraded_cost": 2,
+      "effects_upgraded": [
+        {
+          "type": "damage_scales_with_tag",
+          "base": 6,
+          "per_tag": 3,
+          "tag": "Strike"
+        }
+      ],
+      "source_description": "Deal 6 damage.\nDeals 2 additional damage for ALL your cards containing “Strike”.",
+      "source_description_upgraded": "Deal 6 damage.\nDeals 3 additional damage for ALL your cards containing “Strike”."
+    },
+    {
+      "id": "PILLAGE",
+      "name": "Pillage",
+      "type": "Attack",
+      "rarity": "Uncommon",
+      "cost": 1,
+      "target": "single_enemy",
+      "effects": [
+        {
+          "type": "damage",
+          "amount": 6,
+          "hits": 1
+        },
+        {
+          "type": "draw_until_non_attack"
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "damage",
+          "amount": 9,
+          "hits": 1
+        },
+        {
+          "type": "draw_until_non_attack"
+        }
+      ],
+      "source_description": "Deal 6 damage.\nDraw cards until you draw a non-Attack card.",
+      "source_description_upgraded": "Deal 9 damage.\nDraw cards until you draw a non-Attack card."
+    },
+    {
+      "id": "POMMEL_STRIKE",
+      "name": "Pommel Strike",
+      "type": "Attack",
+      "rarity": "Common",
+      "cost": 1,
+      "target": "single_enemy",
+      "effects": [
+        {
+          "type": "damage",
+          "amount": 9,
+          "hits": 1
+        },
+        {
+          "type": "draw",
+          "amount": 1
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "damage",
+          "amount": 10,
+          "hits": 1
+        },
+        {
+          "type": "draw",
+          "amount": 2
+        }
+      ],
+      "source_description": "Deal 9 damage.\nDraw 1 card.",
+      "source_description_upgraded": "Deal 10 damage.\nDraw 2 cards."
+    },
+    {
+      "id": "PYRE",
+      "name": "Pyre",
+      "type": "Power",
+      "rarity": "Rare",
+      "cost": 2,
+      "target": "self",
+      "effects": [
+        {
+          "type": "gain_power",
+          "power_id": "PYRE",
+          "triggers": {
+            "turn_start": [
+              {
+                "type": "gain_energy",
+                "amount": 1
+              }
+            ]
+          }
+        }
+      ],
+      "upgraded_cost": 2,
+      "effects_upgraded": [
+        {
+          "type": "gain_power",
+          "power_id": "PYRE",
+          "triggers": {
+            "turn_start": [
+              {
+                "type": "gain_energy",
+                "amount": 2
+              }
+            ]
+          }
+        }
+      ],
+      "source_description": "Gain [energy:1] at the start of each turn.",
+      "source_description_upgraded": "Gain [energy:2] at the start of each turn."
+    },
+    {
+      "id": "RUPTURE",
+      "name": "Rupture",
+      "type": "Power",
+      "rarity": "Uncommon",
+      "cost": 1,
+      "target": "self",
+      "effects": [
+        {
+          "type": "gain_power",
+          "power_id": "RUPTURE",
+          "triggers": {
+            "hp_lost_own_turn": [
+              {
+                "type": "gain_strength",
+                "amount": 1
+              }
+            ]
+          }
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "gain_power",
+          "power_id": "RUPTURE",
+          "triggers": {
+            "hp_lost_own_turn": [
+              {
+                "type": "gain_strength",
+                "amount": 2
+              }
+            ]
+          }
+        }
+      ],
+      "source_description": "Whenever you lose HP on your turn, gain 1 [gold]Strength[/gold].",
+      "source_description_upgraded": "Whenever you lose HP on your turn, gain 2 [gold]Strength[/gold]."
+    },
+    {
+      "id": "SECOND_WIND",
+      "name": "Second Wind",
+      "type": "Skill",
+      "rarity": "Uncommon",
+      "cost": 1,
+      "target": "self",
+      "effects": [
+        {
+          "type": "exhaust_hand_filtered_and_block",
+          "filter": "non_attack",
+          "per_card": 5
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "exhaust_hand_filtered_and_block",
+          "filter": "non_attack",
+          "per_card": 7
+        }
+      ],
+      "source_description": "[gold]Exhaust[/gold] all non-Attack cards in your [gold]Hand[/gold]. Gain 5 [gold]Block[/gold] for each card [gold]Exhausted[/gold].",
+      "source_description_upgraded": "[gold]Exhaust[/gold] all non-Attack cards in your [gold]Hand[/gold]. Gain 7 [gold]Block[/gold] for each card [gold]Exhausted[/gold]."
+    },
+    {
+      "id": "SETUP_STRIKE",
+      "name": "Setup Strike",
+      "type": "Attack",
+      "rarity": "Common",
+      "cost": 1,
+      "target": "single_enemy",
+      "effects": [
+        {
+          "type": "damage",
+          "amount": 7,
+          "hits": 1
+        },
+        {
+          "type": "gain_strength_this_turn",
+          "amount": 2
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "damage",
+          "amount": 9,
+          "hits": 1
+        },
+        {
+          "type": "gain_strength_this_turn",
+          "amount": 2
+        }
+      ],
+      "source_description": "Deal 7 damage.\nGain 2 [gold]Strength[/gold] this turn.",
+      "source_description_upgraded": "Deal 9 damage.\nGain 3 [gold]Strength[/gold] this turn."
+    },
+    {
+      "id": "SHRUG_IT_OFF",
+      "name": "Shrug It Off",
+      "type": "Skill",
+      "rarity": "Common",
+      "cost": 1,
+      "target": "self",
+      "effects": [
+        {
+          "type": "block",
+          "amount": 8
+        },
+        {
+          "type": "draw",
+          "amount": 1
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "block",
+          "amount": 11
+        },
+        {
+          "type": "draw",
+          "amount": 1
+        }
+      ],
+      "source_description": "Gain 8 [gold]Block[/gold].\nDraw 1 card.",
+      "source_description_upgraded": "Gain 11 [gold]Block[/gold].\nDraw 1 card."
+    },
+    {
+      "id": "SPITE",
+      "name": "Spite",
+      "type": "Attack",
+      "rarity": "Uncommon",
+      "cost": 0,
+      "target": "single_enemy",
+      "effects": [
+        {
+          "type": "conditional",
+          "if": "lost_hp_this_turn",
+          "then": [
+            {
+              "type": "damage",
+              "amount": 5,
+              "hits": 2
+            }
+          ],
+          "else": [
+            {
+              "type": "damage",
+              "amount": 5,
+              "hits": 1
+            }
+          ]
+        }
+      ],
+      "upgraded_cost": 0,
+      "effects_upgraded": [
+        {
+          "type": "conditional",
+          "if": "lost_hp_this_turn",
+          "then": [
+            {
+              "type": "damage",
+              "amount": 5,
+              "hits": 3
+            }
+          ],
+          "else": [
+            {
+              "type": "damage",
+              "amount": 5,
+              "hits": 1
+            }
+          ]
+        }
+      ],
+      "source_description": "Deal 5 damage.\nIf you lost HP this turn,\nhits 2 times.",
+      "source_description_upgraded": "Deal 5 damage.\nIf you lost HP this turn,\nhits 3 times."
+    },
+    {
+      "id": "STRIKE_IRONCLAD",
+      "name": "Strike",
+      "type": "Attack",
+      "rarity": "Basic",
+      "cost": 1,
+      "target": "single_enemy",
+      "effects": [
+        {
+          "type": "damage",
+          "amount": 6,
+          "hits": 1
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "damage",
+          "amount": 9,
+          "hits": 1
+        }
+      ],
+      "source_description": "Deal 6 damage.",
+      "source_description_upgraded": "Deal 9 damage."
+    },
+    {
+      "id": "TANK",
+      "name": "Tank",
+      "type": "Power",
+      "rarity": "Rare",
+      "cost": 1,
+      "target": "self",
+      "effects": [
+        {
+          "type": "gain_power",
+          "power_id": "TANK"
+        }
+      ],
+      "upgraded_cost": 0,
+      "effects_upgraded": [
+        {
+          "type": "gain_power",
+          "power_id": "TANK"
+        }
+      ],
+      "source_description": "Take double damage from enemies.\nAllies take half damage from enemies.",
+      "source_description_upgraded": "Take double damage from enemies.\nAllies take half damage from enemies."
+    },
+    {
+      "id": "TAUNT",
+      "name": "Taunt",
+      "type": "Skill",
+      "rarity": "Uncommon",
+      "cost": 1,
+      "target": "single_enemy",
+      "effects": [
+        {
+          "type": "block",
+          "amount": 7
+        },
+        {
+          "type": "apply_vulnerable",
+          "amount": 1
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "block",
+          "amount": 8
+        },
+        {
+          "type": "apply_vulnerable",
+          "amount": 1
+        }
+      ],
+      "source_description": "Gain 7 [gold]Block[/gold].\nApply 1 [gold]Vulnerable[/gold].",
+      "source_description_upgraded": "Gain 8 [gold]Block[/gold].\nApply 2 [gold]Vulnerable[/gold]."
+    },
+    {
+      "id": "THRASH",
+      "name": "Thrash",
+      "type": "Attack",
+      "rarity": "Rare",
+      "cost": 1,
+      "target": "single_enemy",
+      "effects": [
+        {
+          "type": "exhaust_random_attack_and_add_damage",
+          "base": 4,
+          "hits": 2
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "exhaust_random_attack_and_add_damage",
+          "base": 6,
+          "hits": 2
+        }
+      ],
+      "source_description": "Deal 4 damage twice.\n[gold]Exhaust[/gold] a random Attack in your [gold]Hand[/gold] and add its damage to this card.",
+      "source_description_upgraded": "Deal 6 damage twice.\n[gold]Exhaust[/gold] a random Attack in your [gold]Hand[/gold] and add its damage to this card."
+    },
+    {
+      "id": "THUNDERCLAP",
+      "name": "Thunderclap",
+      "type": "Attack",
+      "rarity": "Common",
+      "cost": 1,
+      "target": "all_enemies",
+      "effects": [
+        {
+          "type": "damage_all",
+          "amount": 4,
+          "hits": 1
+        },
+        {
+          "type": "apply_vulnerable_all",
+          "amount": 1
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "damage_all",
+          "amount": 7,
+          "hits": 1
+        },
+        {
+          "type": "apply_vulnerable_all",
+          "amount": 1
+        }
+      ],
+      "source_description": "Deal 4 damage and apply 1 [gold]Vulnerable[/gold] to ALL enemies.",
+      "source_description_upgraded": "Deal 7 damage and apply 1 [gold]Vulnerable[/gold] to ALL enemies."
+    },
+    {
+      "id": "TREMBLE",
+      "name": "Tremble",
+      "type": "Skill",
+      "rarity": "Common",
+      "cost": 1,
+      "target": "single_enemy",
+      "effects": [
+        {
+          "type": "apply_vulnerable",
+          "amount": 3
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "apply_vulnerable",
+          "amount": 3
+        }
+      ],
+      "source_description": "Apply 3 [gold]Vulnerable[/gold].",
+      "source_description_upgraded": "Apply 4 [gold]Vulnerable[/gold].",
+      "self_exhausts": true
+    },
+    {
+      "id": "TRUE_GRIT",
+      "name": "True Grit",
+      "type": "Skill",
+      "rarity": "Common",
+      "cost": 1,
+      "target": "self",
+      "effects": [
+        {
+          "type": "block",
+          "amount": 7
+        },
+        {
+          "type": "exhaust_random_from_hand"
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "block",
+          "amount": 9
+        },
+        {
+          "type": "exhaust_random_from_hand"
+        }
+      ],
+      "source_description": "Gain 7 [gold]Block[/gold].\n[gold]Exhaust[/gold] 1 card at random.",
+      "source_description_upgraded": "Gain 9 [gold]Block[/gold].\n[gold]Exhaust[/gold] 1 card."
+    },
+    {
+      "id": "TWIN_STRIKE",
+      "name": "Twin Strike",
+      "type": "Attack",
+      "rarity": "Common",
+      "cost": 1,
+      "target": "single_enemy",
+      "effects": [
+        {
+          "type": "damage",
+          "amount": 5,
+          "hits": 2
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "damage",
+          "amount": 7,
+          "hits": 2
+        }
+      ],
+      "source_description": "Deal 5 damage twice.",
+      "source_description_upgraded": "Deal 7 damage twice."
+    },
+    {
+      "id": "UNMOVABLE",
+      "name": "Unmovable",
+      "type": "Power",
+      "rarity": "Rare",
+      "cost": 2,
+      "target": "self",
+      "effects": [
+        {
+          "type": "gain_power",
+          "power_id": "UNMOVABLE"
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "gain_power",
+          "power_id": "UNMOVABLE"
+        }
+      ],
+      "source_description": "The first time you gain [gold]Block[/gold] from a card each turn, double the amount gained.",
+      "source_description_upgraded": "The first time you gain [gold]Block[/gold] from a card each turn, double the amount gained."
+    },
+    {
+      "id": "UPPERCUT",
+      "name": "Uppercut",
+      "type": "Attack",
+      "rarity": "Uncommon",
+      "cost": 2,
+      "target": "single_enemy",
+      "effects": [
+        {
+          "type": "damage",
+          "amount": 13,
+          "hits": 1
+        },
+        {
+          "type": "apply_vulnerable",
+          "amount": 1
+        },
+        {
+          "type": "apply_weak",
+          "amount": 1
+        }
+      ],
+      "upgraded_cost": 2,
+      "effects_upgraded": [
+        {
+          "type": "damage",
+          "amount": 13,
+          "hits": 1
+        },
+        {
+          "type": "apply_vulnerable",
+          "amount": 2
+        },
+        {
+          "type": "apply_weak",
+          "amount": 2
+        }
+      ],
+      "source_description": "Deal 13 damage.\nApply 1 [gold]Weak[/gold].\nApply 1 [gold]Vulnerable[/gold].",
+      "source_description_upgraded": "Deal 13 damage.\nApply 2 [gold]Weak[/gold].\nApply 2 [gold]Vulnerable[/gold]."
+    },
+    {
+      "id": "VICIOUS",
+      "name": "Vicious",
+      "type": "Power",
+      "rarity": "Uncommon",
+      "cost": 1,
+      "target": "self",
+      "effects": [
+        {
+          "type": "gain_power",
+          "power_id": "VICIOUS",
+          "triggers": {
+            "vulnerable_applied": [
+              {
+                "type": "draw",
+                "amount": 1
+              }
+            ]
+          }
+        }
+      ],
+      "upgraded_cost": 1,
+      "effects_upgraded": [
+        {
+          "type": "gain_power",
+          "power_id": "VICIOUS",
+          "triggers": {
+            "vulnerable_applied": [
+              {
+                "type": "draw",
+                "amount": 2
+              }
+            ]
+          }
+        }
+      ],
+      "source_description": "Whenever you apply [gold]Vulnerable[/gold], draw 1 card.",
+      "source_description_upgraded": "Whenever you apply [gold]Vulnerable[/gold], draw 2 cards."
+    }
+  ]
+}

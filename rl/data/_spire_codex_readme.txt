@@ -1,0 +1,804 @@
+<p align="center">
+  <img src="frontend/public/spire-codex-white-silent-black-background.png" alt="Spire Codex logo" width="200" />
+</p>
+
+# Spire Codex
+
+A comprehensive database and API for **Slay the Spire 2** game data, built by reverse-engineering the game files. Supports all **14 languages** shipped with the game.
+
+**Live site**: [spire-codex.com](https://spire-codex.com)
+
+**Steam App ID**: 2868840
+
+## How It Was Built
+
+Slay the Spire 2 is built with Godot 4 but all game logic lives in a C#/.NET 8 DLL (`sts2.dll`), not GDScript. The data pipeline:
+
+1. **PCK Extraction** — [GDRE Tools](https://github.com/bruvzg/gdsdecomp) extracts the Godot `.pck` file to recover images, Spine animations, and localization data (~9,947 files).
+
+2. **DLL Decompilation** — [ILSpy](https://github.com/icsharpcode/ILSpy) decompiles `sts2.dll` into ~3,300 readable C# source files containing all game models.
+
+3. **Data Parsing** — 22 Python regex-based parsers extract structured data from the decompiled C# source, outputting per-language JSON to `data/{lang}/`:
+   - **Cards**: `base(cost, CardType, CardRarity, TargetType)` constructors + `DamageVar`, `BlockVar`, `PowerVar<T>` for stats
+   - **Characters**: `StartingHp`, `StartingGold`, `MaxEnergy`, `StartingDeck`, `StartingRelics`
+   - **Relics/Potions**: Rarity, pool, descriptions resolved from SmartFormat templates
+   - **Monsters**: HP ranges, ascension scaling via `AscensionHelper`, move state machines with per-move intents (Attack/Defend/Buff/Debuff/Status/Summon/Heal), damage values, multi-hit counts (including AscensionHelper patterns), innate powers from `AfterAddedToRoom` (42 monsters with ascension variants), powers applied per move (target + amount from `PowerCmd.Apply<T>`), block, healing, encounter context (act, room type), **attack patterns** parsed from `GenerateMoveStateMachine()` (112 monsters — cycle, random, conditional, mixed)
+   - **Enchantments**: Card type restrictions, stackability, Amount-based scaling
+   - **Encounters**: Monster compositions, room type (Boss/Elite/Monster), act placement, tags
+   - **Events**: Multi-page decision trees (56 of 66 events), choices with outcomes, act placement, `StringVar` model references resolved to display names, runtime-computed values (escalating costs via `GetDecipherCost()`, gold ranges via `CalculateVars` with `NextInt`/`NextFloat`, heal-to-full patterns), **preconditions** from `IsAllowed()` (25 events — gold, HP, act, deck, relic, potion conditions)
+   - **Ancients**: 8 Ancient NPCs with epithets, character-specific dialogue, relic offerings, portrait icons
+   - **Powers**: PowerType (Buff/Debuff), PowerStackType (Counter/Single), DynamicVars, descriptions
+   - **Epochs/Stories**: Timeline progression data with unlock requirements
+   - **Orbs**: Passive/Evoke values, descriptions
+   - **Afflictions**: Stackability, extra card text, descriptions
+   - **Modifiers**: Run modifier descriptions
+   - **Keywords**: Card keyword definitions (Exhaust, Ethereal, Innate, etc.)
+   - **Intents**: Monster intent descriptions with icons
+   - **Achievements**: Unlock conditions, descriptions, categories, character association, thresholds from C# source (33 achievements)
+   - **Acts**: Boss discovery order, encounters, events, ancients, room counts
+   - **Ascension Levels**: 11 levels (0–10) with descriptions from localization
+   - **Potion Pools**: Character-specific pools parsed from pool classes and epoch references
+   - **Translations**: Per-language filter maps (card types, rarities, keywords → localized names) and UI strings (section titles, descriptions, character names) for frontend consumption
+
+4. **Description Resolution** — A shared `description_resolver.py` module resolves SmartFormat localization templates (`{Damage:diff()}`, `{Energy:energyIcons()}`, `{Cards:plural:card|cards}`) into human-readable text with rich text markers for frontend rendering. Runtime-dynamic variables (e.g., `{Card}`, `{Relic}`) are preserved as readable placeholders. `StringVar` references in events (e.g., `{Enchantment1}` → `ModelDb.Enchantment<Sharp>().Title`) are resolved to display names via localization lookup.
+
+5. **Spine Rendering** — Characters and monsters are Spine skeletal animations, not static images. A headless Node.js renderer assembles idle poses into 512×512 portrait PNGs. All 111 monsters have images: 100 rendered from Spine skeletons, 6 aliased from shared skeletons (Flyconid→flying_mushrooms, Ovicopter→egg_layer, Crusher/Rocket→kaiser_crab), and 5 from static game assets (Doormaker). Also renders all 5 characters (combat, rest site, character select poses), NPCs, and backgrounds. Skin-based variants (Cultists, Bowlbugs, Cubex) are rendered individually. See [Spine Renderer](#spine-renderer) below.
+
+6. **Images** — Card portraits, relic/potion icons, character art, monster sprites, Ancient portrait icons, and boss encounter icons extracted from game assets and served as static files.
+
+7. **Changelog Diffing** — A diff tool compares JSON data between game versions (via git refs or directories), tracking added/removed/changed entities per category with field-level diffs. Changelogs are keyed by Steam game version + optional Codex revision number.
+
+## Project Structure
+
+```
+spire-codex/
+├── backend/                    # FastAPI backend
+│   ├── app/
+│   │   ├── main.py             # App entry, CORS, GZip, rate limiting, static files
+│   │   ├── dependencies.py     # Shared deps (lang validation, language names)
+│   │   ├── routers/            # API endpoints (25+ routers)
+│   │   ├── models/schemas.py   # Pydantic models
+│   │   ├── services/           # JSON data loading (LRU cached, 14-lang support)
+│   │   └── parsers/            # C# source → JSON parsers
+│   │       ├── card_parser.py
+│   │       ├── character_parser.py
+│   │       ├── monster_parser.py
+│   │       ├── relic_parser.py
+│   │       ├── potion_parser.py
+│   │       ├── enchantment_parser.py
+│   │       ├── encounter_parser.py
+│   │       ├── event_parser.py
+│   │       ├── power_parser.py
+│   │       ├── keyword_parser.py        # Keywords, intents, orbs, afflictions, modifiers, achievements (with unlock conditions)
+│   │       ├── guide_parser.py          # Markdown guides with YAML frontmatter
+│   │       ├── epoch_parser.py
+│   │       ├── act_parser.py
+│   │       ├── ascension_parser.py
+│   │       ├── pool_parser.py            # Adds character pool to potions
+│   │       ├── translation_parser.py    # Generates translations.json per language
+│   │       ├── description_resolver.py   # Shared SmartFormat resolver
+│   │       ├── parser_paths.py           # Shared path config (env var overrides for beta)
+│   │       └── parse_all.py              # Orchestrates all parsers (14 languages)
+│   ├── static/images/          # Game images (not committed)
+│   ├── scripts/copy_images.py  # Copies images from extraction → static
+│   ├── Dockerfile
+│   └── requirements.txt
+├── frontend/                   # Next.js 16 + TypeScript + Tailwind CSS
+│   ├── app/
+│   │   ├── contexts/           # LanguageContext, BetaVersionContext
+│   │   ├── components/         # CardGrid, RichDescription, SearchFilter,
+│   │   │                       #   GlobalSearch, Navbar, Footer, LanguageSelector, VersionSelector
+│   │   └── ...                 # Pages: cards, characters, relics, monsters, potions,
+│   │                           #   enchantments, encounters, events, powers, timeline,
+│   │                           #   reference, images, changelog, about, merchant, compare,
+│   │                           #   mechanics/[slug], guides/[slug], guides/submit,
+│   │                           #   leaderboards, leaderboards/submit, leaderboards/stats,
+│   │                           #   runs/[hash] (shared run view)
+│   │                           #   Detail pages: cards/[id], characters/[id], relics/[id],
+│   │                           #   monsters/[id], potions/[id], enchantments/[id],
+│   │                           #   encounters/[id], events/[id], powers/[id], keywords/[id],
+│   │                           #   acts/[id], ascensions/[id], intents/[id], orbs/[id],
+│   │                           #   afflictions/[id], modifiers/[id], achievements/[id]
+│   │                           #   i18n: [lang]/... mirrors all routes for 13 languages
+│   ├── lib/
+│   │   ├── api.ts              # API client + TypeScript interfaces
+│   │   ├── fetch-cache.ts      # Client-side in-memory fetch cache (5min TTL)
+│   │   ├── seo.ts              # Shared SEO utilities (stripTags, SITE_URL, SITE_NAME)
+│   │   ├── jsonld.ts           # JSON-LD schema builders (BreadcrumbList, CollectionPage, Article, WebSite, FAQPage)
+│   │   ├── ui-translations.ts # UI string translations for 13 languages
+│   │   ├── languages.ts       # i18n config — 13 language codes, hreflang mappings
+│   │   └── use-lang-prefix.ts # Hook for language-aware URL construction
+│   └── Dockerfile
+├── tools/
+│   ├── spine-renderer/         # Headless Spine skeleton renderer
+│   │   ├── render_webgl.mjs     # WebGL renderer (single skeleton) — no seam artifacts
+│   │   ├── render_all_webgl.mjs # WebGL batch renderer (all .skel files)
+│   │   ├── render_gif.mjs      # Animation renderer (WebP/GIF/APNG with skin + anim support)
+│   │   ├── render.mjs           # Legacy canvas renderer (has triangle seams)
+│   │   ├── render_all.mjs       # Legacy canvas batch renderer
+│   │   ├── render_skins2.mjs    # Skin variant renderer
+│   │   ├── render_utils.mjs     # Shared canvas rendering utilities
+│   │   └── package.json
+│   ├── diff_data.py            # Changelog diff generator
+│   ├── update.py               # Cross-platform update pipeline
+│   └── deploy.py               # Local Docker build + push to Docker Hub
+├── data/                       # Parsed JSON data files
+│   ├── {lang}/                 # Per-language directories (eng, kor, jpn, fra, etc.)
+│   ├── changelogs/             # Changelog JSON files (keyed by game version)
+│   ├── guides/                 # Markdown guide files with YAML frontmatter
+│   ├── guides.json             # Parsed guide data
+│   ├── runs/                   # Submitted run JSON files (per player hash)
+│   └── runs.db                 # Legacy SQLite (replaced by MongoDB; kept as offline fallback)
+├── extraction/                 # Raw game files (not committed)
+│   ├── raw/                    # GDRE extracted Godot project (stable)
+│   ├── decompiled/             # ILSpy output (stable)
+│   └── beta/                   # Steam beta branch (raw/ + decompiled/)
+├── data-beta/                  # Parsed beta data (versioned: v0.102.0/, v0.103.0/, latest → symlink)
+├── docker-compose.yml          # Local dev
+├── docker-compose.prod.yml     # Production
+├── docker-compose.beta.yml     # Beta site (beta.spire-codex.com)
+├── .github/workflows/
+│   └── ci.yml                  # GitHub Actions CI: lint, type-check, secret scan, Docker build+push, SSH deploy
+└── .forgejo/workflows/
+    └── build.yml               # Retained Forgejo CI fallback (buildah-based, not active)
+```
+
+## Website Pages
+
+| Page | Route | Description |
+|---|---|---|
+| Home | `/` | Dashboard with entity counts, category cards, character links |
+| Cards | `/cards` | Filterable card grid with modal detail view |
+| Card Detail | `/cards/[id]` | Full card stats, upgrade info, image |
+| Characters | `/characters` | Character overview grid |
+| Character Detail | `/characters/[id]` | Stats, starting deck/relics, quotes, NPC dialogue trees |
+| Relics | `/relics` | Filterable relic grid |
+| Relic Detail | `/relics/[id]` | Full relic info with rich text flavor |
+| Monsters | `/monsters` | Monster grid with HP, moves, Spine renders |
+| Monster Detail | `/monsters/[id]` | HP, moves with intents/damage/powers/block, encounter links, power tooltips |
+| Potions | `/potions` | Filterable potion grid (rarity, character pool) |
+| Potion Detail | `/potions/[id]` | Full potion info |
+| Enchantments | `/enchantments` | Enchantment list with card type filters |
+| Enchantment Detail | `/enchantments/[id]` | Full enchantment info |
+| Encounters | `/encounters` | Encounter compositions by act/room type |
+| Encounter Detail | `/encounters/[id]` | Monster lineup, room type, tags |
+| Events | `/events` | Multi-page event trees with expandable choices |
+| Event Detail | `/events/[id]` | Full event pages, options, Ancient dialogue |
+| Powers | `/powers` | Buffs, debuffs, and neutral powers |
+| Power Detail | `/powers/[id]` | Power info with cards that apply this power |
+| Keywords | `/keywords` | Card keyword list |
+| Keyword Detail | `/keywords/[id]` | Keyword description with filterable card grid |
+| Merchant | `/merchant` | Card/relic/potion pricing, card removal costs, fake merchant |
+| Compare | `/compare` | Character comparison hub (10 pairs) |
+| Compare Detail | `/compare/[pair]` | Side-by-side character comparison |
+| Developers | `/developers` | API docs, widget docs, data exports |
+| Showcase | `/showcase` | Community project gallery |
+| Timeline | `/timeline` | Epoch progression with era grouping, unlock requirements |
+| Act Detail | `/acts/[id]` | Bosses, encounters, events, ancients for an act |
+| Ascension Detail | `/ascensions/[id]` | Ascension level description with prev/next navigation |
+| Intent Detail | `/intents/[id]` | Intent icon, description |
+| Orb Detail | `/orbs/[id]` | Orb icon, passive/evoke description |
+| Affliction Detail | `/afflictions/[id]` | Affliction description, stackability |
+| Modifier Detail | `/modifiers/[id]` | Run modifier description |
+| Achievement Detail | `/achievements/[id]` | Achievement description |
+| Badges | `/badges` | All 25 run-end badges grouped by tiered / single-tier / multiplayer-only |
+| Badge Detail | `/badges/[id]` | Per-tier breakdown (Bronze / Silver / Gold), requires-win + multiplayer flags, icon |
+| Mechanics | `/mechanics` | Game mechanics hub — 27 clickable sections with individual SEO pages |
+| Mechanic Detail | `/mechanics/[slug]` | Card odds, relic distribution, potion drops, map generation, boss pools, combat, secrets & trivia |
+| Guides | `/guides` | Community strategy guides with search/filter |
+| Guide Detail | `/guides/[slug]` | Full guide with markdown rendering + tooltip widget |
+| Submit Guide | `/guides/submit` | Guide submission form (Discord webhook) |
+| Leaderboards | `/leaderboards` | Fastest Wins and Highest Ascension ladders with single/co-op and game-mode filters (standard / daily / Today / custom). All filter state is in the URL so any view is shareable |
+| Browse Runs | `/runs` | Full run browser with an expression search bar (`user:`, `char:`, `asc:` ranges, `card:`/`relic:` multi-value AND, `version:` ranges, `mode:`, `result:`, `players:`) plus dropdown filters, sort, and shareable URLs |
+| Submit a Run | `/leaderboards/submit` | Drag-and-drop `.run` upload with Overwolf companion link, Steam/Discord sign-in to auto-associate runs, and your recent runs |
+| Stats | `/leaderboards/stats` | Ranked tables (pick rate, win rate, count) for cards, relics, potions, encounters. Filter by character / ascension / outcome |
+| Profile | `/profile` | Signed-in user's stats (top cards/relics/potions, character breakdown), personal bests, competitive comparison (today's daily leaderboard, global ranks, win rate vs community), and run management |
+| Settings | `/settings` | Account settings: username, email, linked Steam/Discord |
+| Shared Run | `/runs/[hash]` | In-game-style victory/defeat summary with clickable map-node icons, relic strip, and tiny-card grid |
+| Reference | `/reference` | All items clickable — acts, ascensions, keywords, orbs, afflictions, intents, modifiers, achievements |
+| Images | `/images` | Browsable game assets with ZIP download per category |
+| Changelog | `/changelog` | Data diffs between game updates |
+| About | `/about` | Project info, stats, pipeline visualization |
+| Thank You | `/thank-you` | Ko-fi supporters and community contributors (split from About so the page can be linked directly) |
+| Knowledge Demon | `/knowledge-demon` | Info page for the Discord bot — slash commands, moderation features, install CTA |
+| News | `/news` | Mirrored Steam announcements feed; canonical links back to Steam so it's additive, not duplicative |
+| News article | `/news/[gid]` | Single Steam announcement with sanitized BBCode body and `NewsArticle` JSON-LD |
+| Tier List | `/tier-list` | Codex Score tier-list hub (S → F tiers) for cards / relics / potions |
+| Tier List Detail | `/tier-list/[type]` | Visual S/A/B/C/D/F rows for one entity type, sourced from `/api/runs/scores/{type}` |
+| Scoring | `/leaderboards/scoring` | Codex Score methodology page — Bayesian shrinkage, prior weight, scale range, tier cutoffs |
+
+## API Endpoints
+
+All data endpoints accept an optional `?lang=` query parameter (default: `eng`). Responses are **GZip-compressed** and cached with `Cache-Control: public, max-age=300`.
+
+| Endpoint | Description | Filters |
+|---|---|---|
+| `GET /api/cards` | All cards | `color`, `type`, `rarity`, `keyword`, `search`, `lang` |
+| `GET /api/cards/{id}` | Single card | `lang` |
+| `GET /api/characters` | All characters | `search`, `lang` |
+| `GET /api/characters/{id}` | Single character (with quotes, dialogues) | `lang` |
+| `GET /api/relics` | All relics | `rarity`, `pool`, `search`, `lang` |
+| `GET /api/relics/{id}` | Single relic | `lang` |
+| `GET /api/monsters` | All monsters | `type`, `search`, `lang` |
+| `GET /api/monsters/{id}` | Single monster | `lang` |
+| `GET /api/potions` | All potions | `rarity`, `pool`, `search`, `lang` |
+| `GET /api/potions/{id}` | Single potion | `lang` |
+| `GET /api/enchantments` | All enchantments | `card_type`, `search`, `lang` |
+| `GET /api/enchantments/{id}` | Single enchantment | `lang` |
+| `GET /api/encounters` | All encounters | `room_type`, `act`, `search`, `lang` |
+| `GET /api/encounters/{id}` | Single encounter | `lang` |
+| `GET /api/events` | All events | `type`, `act`, `search`, `lang` |
+| `GET /api/events/{id}` | Single event | `lang` |
+| `GET /api/powers` | All powers | `type`, `stack_type`, `search`, `lang` |
+| `GET /api/powers/{id}` | Single power | `lang` |
+| `GET /api/keywords` | Card keyword definitions | `lang` |
+| `GET /api/keywords/{id}` | Single keyword | `lang` |
+| `GET /api/intents` | Monster intent types | `lang` |
+| `GET /api/intents/{id}` | Single intent | `lang` |
+| `GET /api/orbs` | All orbs | `lang` |
+| `GET /api/orbs/{id}` | Single orb | `lang` |
+| `GET /api/afflictions` | Card afflictions | `lang` |
+| `GET /api/afflictions/{id}` | Single affliction | `lang` |
+| `GET /api/modifiers` | Run modifiers | `lang` |
+| `GET /api/modifiers/{id}` | Single modifier | `lang` |
+| `GET /api/achievements` | All achievements | `lang` |
+| `GET /api/achievements/{id}` | Single achievement | `lang` |
+| `GET /api/badges` | All run-end badges | `tiered`, `multiplayer_only`, `requires_win`, `search`, `lang` |
+| `GET /api/badges/{id}` | Single badge with tier breakdown | `lang` |
+| `GET /api/history/{entity_type}/{entity_id}` | Per-entity version history (case-insensitive, newest first) | — |
+| `GET /api/epochs` | Timeline epochs | `era`, `search`, `lang` |
+| `GET /api/epochs/{id}` | Single epoch | `lang` |
+| `GET /api/stories` | Story entries | `lang` |
+| `GET /api/stories/{id}` | Single story | `lang` |
+| `GET /api/acts` | All acts | `lang` |
+| `GET /api/acts/{id}` | Single act | `lang` |
+| `GET /api/ascensions` | Ascension levels (0–10) | `lang` |
+| `GET /api/ascensions/{id}` | Single ascension level | `lang` |
+| `GET /api/stats` | Entity counts across all categories | `lang` |
+| `GET /api/languages` | Available languages with display names | — |
+| `GET /api/translations` | Translation maps for filter values and UI strings | `lang` |
+| `GET /api/images` | Image categories with file lists. Beta-prefixed categories accept `?version=`. | — |
+| `GET /api/images/beta/versions` | Available beta image archive versions + `latest` symlink target | — |
+| `GET /api/images/{category}/download` | ZIP download of image category. Beta categories accept `?version=`. | — |
+| `GET /api/changelogs` | Changelog summaries (all versions) | — |
+| `GET /api/changelogs/{tag}` | Full changelog for a version tag | — |
+| `GET /api/guides` | Community guides | `category`, `difficulty`, `tag`, `search` |
+| `GET /api/guides/{slug}` | Single guide (with markdown content) | — |
+| `POST /api/guides` | Submit guide (proxied to Discord) | — |
+| `POST /api/runs` | Submit a run (.run file JSON) | `username` |
+| `GET /api/runs/list` | List/browse submitted runs | `character`, `win`, `username`, `seed`, `build_id`, `build_ids`, `players`, `game_mode`, `ascension`, `ascension_min`, `ascension_max`, `card`, `relic`, `today`, `sort`, `page`, `limit` |
+| `GET /api/runs/shared/{hash}` | Full run data by hash (merges `username` from DB) | — |
+| `GET /api/runs/stats` | Aggregated community stats | `character`, `win`, `ascension`, `game_mode`, `players` |
+| `GET /api/runs/leaderboard` | Ranked wins-only leaderboard | `category` (`fastest`, `highest_ascension`), `character`, `players`, `game_mode`, `today`, `page`, `limit` |
+| `GET /api/runs/leaderboard/rank/{hash}` | Rank of a single winning run within its ladder | `category` |
+| `GET /api/runs/scores/{type}` | Codex Score (Bayesian-shrunk win-rate score + S/A/B/C/D/F tier) per entity | `type` = `cards`/`relics`/`potions` |
+| `GET /api/runs/encounter-stats` | Per-encounter aggregates (appearance, fatal rate, avg damage/turns) | `act`, `room_type`, `multiplayer`, `page`, `limit` |
+| `POST /api/runs/claim` | Attach a username to previously-submitted runs by hash | — |
+| `GET /api/runs/versions` | Distinct game versions across submitted runs | — |
+| `GET /api/exports/{lang}` | ZIP of all entity JSON for one language | `lang` |
+| `GET /api/news` | Steam announcements + community news (locally archived) | `feed_type`, `feedname`, `tag`, `since`, `search`, `limit`, `offset` |
+| `GET /api/news/{gid}` | Single news article (raw HTML/BBCode body) | — |
+| `GET /api/merchant/config` | Auto-extracted merchant pricing config | — |
+| `POST /api/feedback` | Submit feedback (proxied to Discord) | — |
+| `GET /api/versions` | Available data versions (beta multi-version) | — |
+
+**User accounts** (cookie/JWT session; sign in with Steam or Discord):
+
+| Endpoint | Description |
+|---|---|
+| `GET /api/auth/me` | Current signed-in user |
+| `GET /api/auth/steam/redirect` | Start Steam OpenID sign-in |
+| `GET /api/auth/discord/start` | Start Discord OAuth sign-in |
+| `POST /api/auth/logout` | Clear the session cookie |
+| `PATCH /api/auth/username` / `PATCH /api/auth/email` | Update profile fields |
+| `GET /api/auth/runs` / `POST /api/auth/runs/upload` / `DELETE /api/auth/runs/{hash}` | List, upload, and remove the user's runs |
+| `GET /api/auth/stats` | Per-user aggregated stats (profile page) |
+| `GET /api/auth/personal-bests` | Fastest solo/co-op, highest ascension, today's and all-time daily |
+| `GET /api/auth/competitive` | Today's daily leaderboard, global ranks, win rate vs community |
+
+Rate limited to **60 requests per minute** per IP. Feedback and guide submission limited to **3-5 per minute** per IP. Interactive docs at `/docs` (Swagger UI).
+
+### Localization
+
+All game data is served in 14 languages using Slay the Spire 2's own localization files. Pass `?lang=` to any data endpoint. On the beta site, pass `?version=v0.102.0` to browse a specific beta version.
+
+| Code | Language | Code | Language |
+|------|----------|------|----------|
+| `eng` | English | `kor` | 한국어 |
+| `deu` | Deutsch | `pol` | Polski |
+| `esp` | Español (ES) | `ptb` | Português (BR) |
+| `fra` | Français | `rus` | Русский |
+| `ita` | Italiano | `spa` | Español (LA) |
+| `jpn` | 日本語 | `tha` | ไทย |
+| `tur` | Türkçe | `zhs` | 简体中文 |
+
+**What's localized**: All entity names, descriptions, card types, rarities, keywords, power names, monster names in encounters, character names, section titles — everything that comes from the game's localization data.
+
+**What stays English**: UI chrome (navigation, filter labels, search placeholders), structural fields used for filtering (`room_type`, power `type`/`stack_type`, `pool`), site branding.
+
+Filter parameters (`type=Attack`, `rarity=Rare`, `keyword=Exhaust`) always use English values regardless of language — the backend translates them to the localized equivalents before matching.
+
+Example: `GET /api/cards?lang=kor&type=Attack` returns Korean card data where type is "공격", filtered correctly even though the parameter is English.
+
+### Rich Text Formatting
+
+Text fields (`description`, `loss_text`, `flavor`, dialogue `text`, option `title`/`description`) may contain Godot BBCode-style tags preserved from the game's localization data:
+
+| Tag | Type | Example | Rendered as |
+|---|---|---|---|
+| `[gold]...[/gold]` | Color | `[gold]Enchant[/gold]` | Gold colored text |
+| `[red]...[/red]` | Color | `[red]blood[/red]` | Red colored text |
+| `[blue]...[/blue]` | Color | `[blue]2[/blue]` | Blue colored text |
+| `[green]...[/green]` | Color | `[green]healed[/green]` | Green colored text |
+| `[purple]...[/purple]` | Color | `[purple]Sharp[/purple]` | Purple colored text |
+| `[orange]...[/orange]` | Color | `[orange]hulking figure[/orange]` | Orange colored text |
+| `[pink]...[/pink]` | Color | — | Pink colored text |
+| `[aqua]...[/aqua]` | Color | `[aqua]Ascending Spirit[/aqua]` | Cyan colored text |
+| `[sine]...[/sine]` | Effect | `[sine]swirling vortex[/sine]` | Wavy animated text |
+| `[jitter]...[/jitter]` | Effect | `[jitter]CLANG![/jitter]` | Shaking animated text |
+| `[b]...[/b]` | Effect | `[b]bold text[/b]` | Bold text |
+| `[i]...[/i]` | Effect | `[i]whispers[/i]` | Italic text |
+| `[energy:N]` | Icon | `[energy:2]` | Energy icon(s) |
+| `[star:N]` | Icon | `[star:1]` | Star icon(s) |
+| `[Card]`, `[Relic]` | Placeholder | `[Card]` | Runtime-dynamic (italic) |
+
+Tags can be nested: `[b][jitter]CLANG![/jitter][/b]`, `[gold][sine]swirling vortex[/sine][/gold]`.
+
+If you're consuming the API directly, you can strip these with a regex like `\[/?[a-z]+(?::\d+)?\]` or render them in your own frontend. The `description_raw` field (where available) contains the unresolved SmartFormat template.
+
+## Running Locally
+
+### Prerequisites
+
+- Python 3.10+
+- Node.js 20+
+
+### Backend
+
+```bash
+python -m venv venv
+source venv/bin/activate      # Windows: venv\Scripts\activate
+pip install -r backend/requirements.txt
+
+cd backend
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+Backend runs at **http://localhost:8000**.
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev
+```
+
+Frontend runs at **http://localhost:3000**.
+
+### Docker
+
+```bash
+docker compose up --build
+```
+
+Starts both services (backend on 8000, frontend on 3000).
+
+### Environment variables
+
+The core read-only API needs no configuration. The optional features below are
+enabled by env vars (set in the backend's environment or the compose file):
+
+| Variable | Used by | Notes |
+|---|---|---|
+| `MONGO_URL` | Backend | Runs database (community stats, leaderboards, accounts). When unset, the backend falls back to the legacy SQLite path (`data/runs.db`). |
+| `JWT_SECRET` | Backend | Signs user-account session tokens. |
+| `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET` | Backend | Discord OAuth sign-in. |
+| `FRONTEND_URL`, `SPIRE_CODEX_PUBLIC_BASE` | Backend | OAuth redirect / return URLs. |
+| `ENVIRONMENT` | Backend | `production` toggles secure-cookie behavior. |
+| `NEXT_PUBLIC_API_URL` | Frontend (build) | API base; empty in prod so images/data resolve same-origin. |
+| `NEXT_PUBLIC_CDN_URL` | Frontend (build) | When set (e.g. `https://cdn.spire-codex.com`), images load from the CDN instead of `/static`. |
+| `NEXT_PUBLIC_SITE_URL` | Frontend (build) | Canonical site URL for metadata. |
+
+User accounts and the CDN are off by default, so the project runs end-to-end
+without any of these.
+
+## Update Pipeline
+
+A cross-platform Python script handles the full update workflow when a new game version is released:
+
+```bash
+# Full pipeline — extract game files, parse data, render sprites, copy images:
+python3 tools/update.py
+
+# Specify game install path manually:
+python3 tools/update.py --game-dir "/path/to/Slay the Spire 2"
+
+# Skip extraction (already have fresh extraction/ directory):
+python3 tools/update.py --skip-extract
+
+# Only re-parse data (no extraction or rendering):
+python3 tools/update.py --parse-only
+
+# Only re-render Spine sprites:
+python3 tools/update.py --render-only
+
+# Generate a changelog after updating:
+python3 tools/update.py --changelog --game-version "0.98.2" --build-id "22238966"
+```
+
+The script auto-detects your OS and finds the Steam install directory. Requirements per step:
+
+| Step | Tool | Install |
+|---|---|---|
+| PCK extraction | `gdre_tools` | [GDRE Tools releases](https://github.com/bruvzg/gdsdecomp/releases) |
+| DLL decompilation | `ilspycmd` | `dotnet tool install ilspycmd -g` |
+| Data parsing | Python 3.10+ | Built-in |
+| Image copying | Python 3.10+ | Built-in |
+| Spine rendering | Node.js 20+ | [nodejs.org](https://nodejs.org) |
+
+### Manual Steps
+
+If you prefer to run steps individually:
+
+```bash
+# Parse all data (all 14 languages)
+cd backend/app/parsers && python3 parse_all.py
+
+# Parse a single language
+cd backend/app/parsers && python3 parse_all.py --lang eng
+
+# Copy images from extraction to static (PNG + WebP from same source — no
+# lossy chain through an existing backend WebP). WebP at quality=95, method=6.
+python3 backend/scripts/copy_images.py
+
+# Render Spine sprites (WebGL — no triangle seam artifacts)
+cd tools/spine-renderer && npm install
+npx playwright install chromium           # First time only
+node render_all_webgl.mjs                 # All 138 skeletons via headless Chrome
+node render_webgl.mjs <skel_dir> <out> [size] [--skin=a,b] [--anim=name] [--anim-time=N]
+
+# Common per-monster overrides:
+#   --skin=moss1,diamondeye   combine variant skins with default (cubex_construct)
+#   --skin=skin1              swap default for a variant (scroll_of_biting)
+#   --anim-time=0.5           advance animation N seconds before snapshot
+#   --anim=attack             override the auto-picked idle animation
+#
+# Smoke-placeholder substitution: gas_bomb_2.png, the_forgotten_2.png, and
+# living_smog_2.png ship as magenta "Smoke Placeholder" boards in the source.
+# render_webgl.mjs swaps them for a procedurally generated dark plum cloud
+# at the same dimensions before GL upload, then forces slot.color.a = 1.0
+# on substituted slots (the artists set low alpha expecting a shader).
+
+# Re-frame undersized monster sprites (post-process — crops to true alpha
+# bbox, scales to fill ~92% of the 512x512 frame):
+python3 tools/rescale_bestiary.py fuzzy_wurm_crawler thieving_hopper terror_eel
+
+# Legacy canvas renderer (has triangle seam artifacts — avoid)
+# node render_all.mjs / node render.mjs
+```
+
+## Changelog System
+
+Track what changes between game updates with field-level diffs across all entity categories.
+
+### Generating a Changelog
+
+```bash
+# Compare current data against a git ref:
+python3 tools/diff_data.py HEAD~1 --format json \
+    --game-version "0.98.2" --build-id "22238966" \
+    --title "March Update"
+
+# Preview as text or markdown:
+python3 tools/diff_data.py HEAD~1 --format text
+python3 tools/diff_data.py HEAD~1 --format md
+```
+
+### Changelog Schema
+
+Each changelog JSON file contains:
+
+| Field | Description |
+|---|---|
+| `app_id` | Steam App ID (2868840) |
+| `game_version` | Steam game version (e.g. `"0.98.2"`) |
+| `build_id` | Steam build ID |
+| `tag` | Unique version key (e.g. `"1.0.3"`) |
+| `date` | Date of the update |
+| `title` | Human-readable title |
+| `summary` | Counts: `{ added, removed, changed }` |
+| `features` / `fixes` / `api_changes` | Hand-curated release notes. Preserved through `diff_data.py` regenerations of an existing tag — the data diff is overwritten but these arrays merge through. |
+| `categories` | Per-category diffs with added/removed/changed entities. Field changes recurse into nested dicts/lists so each leaf is its own row (e.g. `vars.DamageVar: 8 → 10`) instead of opaque `vars: 2 fields → 2 fields`. |
+
+### Write-once retention
+
+Files under `data/changelogs/` are write-once historical records. `.github/workflows/changelog-guard.yml` blocks any PR that **modifies or deletes** an existing changelog. New files (`A`) are always allowed; modifications require the `changelog-edit-approved` label on the PR. See `CONTRIBUTING.md → Changelog Retention` for the policy and override workflow.
+
+### Per-entity history
+
+`GET /api/history/{entity_type}/{entity_id}` walks every changelog and returns the entries that touched the requested entity, newest first. The Version History rail on every detail page (`/cards/{id}`, `/monsters/{id}`, etc.) is powered by this endpoint.
+
+## Deploying
+
+### CI/CD (GitHub Actions)
+
+Pushes to `main` trigger `.github/workflows/ci.yml` (self-hosted K8s runner). The workflow runs secret scanning, ESLint + TypeScript checks, ruff lint + format, then builds + pushes Docker images for both stable (`:latest`) and beta (`:beta`) tags. The Umami `NEXT_PUBLIC_UMAMI_WEBSITE_ID` is injected per-tag from the `UMAMI_WEBSITE_ID` / `UMAMI_BETA_WEBSITE_ID` repo secrets so each site reports into its own analytics property.
+
+CI does **not** deploy — that's the autodeploy cron on the DO box (see below).
+
+> **Note:** `.forgejo/workflows/build.yml` is retained as a fallback CI config (buildah-based) but is not currently active.
+
+### Local Build + Push
+
+Skip CI and push directly from your machine:
+
+```bash
+# Build and push both images:
+python3 tools/deploy.py
+
+# Frontend only:
+python3 tools/deploy.py --frontend
+
+# Backend only:
+python3 tools/deploy.py --backend
+
+# Test build without pushing:
+python3 tools/deploy.py --no-push
+
+# Tag a release:
+python3 tools/deploy.py --tag v0.98.2
+
+# Build and push beta images (:beta tag, skips IndexNow):
+python3 tools/deploy.py --beta
+```
+
+Auto-detects Apple Silicon and cross-compiles to `linux/amd64` via `docker buildx`. Requires `docker login` first.
+
+### Production
+
+Stable and beta both run on the same DigitalOcean box (post-Overwolf-launch architecture; CF load balancer retired). The secondary Lightsail host now runs MongoDB.
+
+**Autodeploy** — an hourly cron on the DO box runs `/usr/local/bin/spire-codex-autodeploy` at :03 every hour. Each tick `git pull`s, and if HEAD advanced beyond `data/news/*` (data-only news refreshes skip the recreate since the news API reads from a bind mount), it pulls new Docker images and force-recreates the containers for both stable and beta. Cloudflare cache is purged at the end. Logs at `/var/log/spire-codex-autodeploy.log`. See [`infrastructure/ansible/README.md`](infrastructure/ansible/README.md) for install instructions.
+
+**Manual deploy** (force an immediate refresh, e.g. right after a hand-built image push):
+
+```bash
+cd infrastructure/ansible
+./bin/do-ansible playbooks/deploy.yml                                      # stable
+./bin/do-ansible playbooks/deploy.yml -e compose_file=docker-compose.beta.yml  # beta
+```
+
+Production data is bind-mounted (`./data:/data:ro` for frontend, RW for backend). The backend re-reads news + run state on every request, so updates to `data/news/*.json` don't need a container restart.
+
+### Beta Site (beta.spire-codex.com)
+
+Parallel deployment serving data from the Steam `public-beta` branch with multi-version browsing. The main site's `/images` selector also lists every archived beta version (`main`, `v0.106.0`, `v0.105.1`, ...) — the beta site itself locks the dropdown to its current build.
+
+**Architecture**: `VersionMiddleware` reads `?version=` from the query string, stores it in a Python `ContextVar`, and `data_service.py` reads it when loading JSON — zero changes to any of the 20+ router files. Frontend uses `BetaVersionContext` + `VersionSelector` dropdown, and `fetch-cache.ts` transparently appends `&version=X` to all API calls.
+
+**Data layout**: `data-beta/v0.102.0/eng/`, ..., `data-beta/v0.106.0/eng/`, with a `latest` symlink. Each version has its own `changelogs/` directory. Beta image archives mirror the same layout at `backend/static/images/beta/<version>/{cards,monsters,misc,ui,vfx}/`.
+
+**Automated ingest** — `tools/beta-watch/` runs as a launchd job on the dev Mac (cadence: Thursdays 15:00–22:45, every 15 min). On detecting a new buildid from SteamCMD's `public-beta` branch, it runs the full pipeline (Godot RE Tools → ilspycmd → `parse_all.py` → `diff_data.py` → `sync-images.sh` per-version) and opens an `auto/beta-<version>` PR. See [`tools/beta-watch/README.md`](tools/beta-watch/README.md) for install + ops.
+
+**Manual ingest** (when the watcher misses or for backfills):
+
+```bash
+# 1. Opt into Steam beta branch (StS2 → Properties → Betas), pick "public-beta"
+
+# 2. Extract and decompile beta game files
+"/Applications/Godot RE Tools.app/Contents/MacOS/Godot RE Tools" --headless \
+  "--recover=<path_to_pck>" "--output=extraction/beta/raw"
+~/.dotnet/tools/ilspycmd -p -o extraction/beta/decompiled "<path_to_dll>"
+
+# 3. Parse + sync images into versioned dirs
+cd backend/app/parsers
+EXTRACTION_DIR=../../extraction/beta DATA_DIR=../../data-beta/v0.106.0 python3 parse_all.py
+VERSION=v0.106.0 ../../tools/beta-watch/sync-images.sh
+
+# 4. Generate changelog (previous → new version)
+python3 tools/diff_data.py data-beta/v0.105.1/eng data-beta/v0.106.0/eng \
+  --format json --output-dir data-beta/v0.106.0/changelogs \
+  --game-version "0.106.0" --title "Beta v0.106.0"
+
+# (The latest symlink and PR are handled by sync-images.sh + git commits.)
+```
+
+The parsers support `EXTRACTION_DIR` and `DATA_DIR` env vars via `parser_paths.py`. Once the PR merges, the next autodeploy tick pulls + restarts both stacks.
+
+## Spine Renderer
+
+Monster sprites in StS2 are [Spine](http://esotericsoftware.com/) skeletal animations — each monster is a `.skel` (binary skeleton) + `.atlas` + `.png` spritesheet, not a single image. The renderer assembles these into static portrait PNGs.
+
+### WebGL Renderer (Current)
+
+The WebGL renderer (`render_webgl.mjs`, `render_all_webgl.mjs`) uses **Playwright + spine-webgl** to render skeletons via headless Chrome's GPU. This produces clean renders with **no triangle seam artifacts**.
+
+**How it works:**
+1. Launches headless Chrome via Playwright with WebGL enabled
+2. Loads skeleton data + atlas + textures as base64 into the browser page
+3. Creates a WebGL canvas, sets up spine-webgl shader + polygon batcher
+4. Applies the idle animation, calculates bounds (excluding shadow/ground slots)
+5. Renders via GPU triangle rasterization — no canvas clip paths, no seams
+6. Reads raw pixels via `gl.readPixels`, flips vertically (WebGL is bottom-up)
+7. Writes PNG via node-canvas to preserve transparency
+
+**Single skeleton:**
+```bash
+node render_webgl.mjs <skel_dir> <output_path> [size]
+node render_webgl.mjs ../../extraction/raw/animations/backgrounds/neow_room ../../backend/static/images/misc/neow.png 2048
+```
+
+**Batch all skeletons:**
+```bash
+node render_all_webgl.mjs  # Renders 138 skeletons to backend/static/images/renders/
+```
+
+### Render coverage
+
+| Category | Rendered | Total | Notes |
+|---|---|---|---|
+| Monsters | 99 | 103 dirs | All 111 game monsters have images (99 rendered + aliases/static) |
+| Characters | 16 | 16 | Combat, rest site, and select poses |
+| Backgrounds/NPCs | 14 | 17 | Neow, Tezcatara, merchant rooms, main menu |
+| VFX/UI | 9 | 22 | Most VFX need specific animation frames |
+| **Total** | **138** | **158** | 20 skipped (no atlas, VFX-only, blank) |
+
+### Animation Renderer
+
+The animation renderer (`render_gif.mjs`) renders Spine idle/attack animations as animated WebP, GIF, or APNG. Supports skin variants, animation selection, and streaming frame-to-disk for large animations.
+
+**Supported output formats:**
+- **`.webp`** (recommended) — lossless animated WebP with full alpha, ~33% smaller than APNG. Frames streamed to disk to avoid OOM.
+- **`.gif`** — 256 colors, binary transparency. Smallest files but lowest quality.
+- **`.apng`** — full alpha like WebP but larger files.
+
+```bash
+# Render lossless animated WebP (recommended)
+NODE_OPTIONS="--max-old-space-size=8192" node render_gif.mjs <skel_dir> <output.webp> [size] [--fps=N]
+
+# With skin variant (for bowlbug, cultists, cubex, etc.)
+node render_gif.mjs <skel_dir> output.webp 256 --fps=10 --skin=rock
+
+# Specific animation (default: idle loop)
+node render_gif.mjs <skel_dir> output.webp 256 --fps=12 --anim=attack
+
+# White silhouette mode (for boss map node icons)
+node render_gif.mjs <skel_dir> output.webp 256 --white
+```
+
+**Animation library:** 209 lossless animated WebPs:
+- 15 character animations (combat/select/rest × 5 characters) at 512×512
+- 103 monster idle animations at 256×256
+- 91 monster attack animations at 256×256
+
+**Skin variants:** 13 monsters have skin variants (bowlbug, cubex_construct, cultists, etc.). Use `--skin=` to select. Default skin often shows only the base skeleton without body.
+
+**Boss map node shader:** The game uses `boss_map_point.gdshader` which treats RGB channels as masks:
+- **Red channel** × `map_color` (default: beige `0.671, 0.58, 0.478`) → fill color
+- **Blue channel** × `black_layer_color` (default: black `0, 0, 0`) → outline color
+- **Green channel** × white `1, 1, 1` → highlights
+
+### Legacy Canvas Renderer
+
+The canvas renderer (`render.mjs`, `render_all.mjs`) uses `spine-canvas` with `triangleRendering = true`. This produces **visible wireframe mesh artifacts** due to canvas `clip()` path anti-aliasing between adjacent triangles. Use the WebGL renderer instead.
+
+### Dependencies
+
+- `@esotericsoftware/spine-webgl` ^4.2.107 — Spine runtime for WebGL (current)
+- `playwright` — Headless Chrome for WebGL rendering
+- `gif-encoder-2` — GIF encoding for animation renderer
+- `canvas` ^3.1.0 — Node.js Canvas implementation (frame buffer for animation renderer)
+- `Pillow` (Python) — assembles WebP/APNG from rendered PNG frames
+- `@esotericsoftware/spine-canvas` ^4.2.106 — Spine runtime for Canvas (legacy)
+
+## Extracting Game Files
+
+If you need to extract from scratch:
+
+```bash
+# Extract PCK (GDRE Tools)
+/path/to/gdre_tools --headless --recover="/path/to/sts2.pck" --output-dir=extraction/raw
+
+# Decompile DLL (ILSpy CLI)
+ilspycmd -p -o extraction/decompiled "/path/to/sts2.dll"
+```
+
+Steam install locations:
+- **Windows**: `C:\Program Files (x86)\Steam\steamapps\common\Slay the Spire 2\`
+- **macOS**: `~/Library/Application Support/Steam/steamapps/common/Slay the Spire 2/`
+- **Linux**: `~/.local/share/Steam/steamapps/common/Slay the Spire 2/`
+
+## Versioning
+
+Spire Codex uses **`1.X.Y`** semantic versioning:
+
+| Segment | Meaning |
+|---------|---------|
+| **1** | Spire Codex major version (stays unless a full rewrite) |
+| **X** | Bumps when Mega Crit releases a game patch |
+| **Y** | Bumps for our own parser/frontend fixes and improvements |
+
+Examples: `v1.0.0` = initial release, `v1.0.1` = our bug fixes, `v1.1.0` = first Mega Crit patch incorporated.
+
+## SEO
+
+- **Structured data (JSON-LD)**: WebSite + VideoGame (home), CollectionPage + ItemList (list pages), Article + BreadcrumbList + FAQPage (detail pages), SoftwareApplication (developers), NewsArticle (news/[gid])
+- **Title format**: `"Slay the Spire 2 (sts2) {Page Title} | Spire Codex"` — standardized across all pages. Runs use `"{username} - {char} - Ascension {N} {win/loss} - Slay the Spire 2 (sts2) | Spire Codex"`. "(sts2)" inline so cross-locale `sts2 tier list` / `sts2 card list` queries match.
+- **Sitemap**: Flat XML at `/sitemap.xml` with `force-dynamic` (renders server-side, not build-time). ~20,000+ URLs including entity detail pages, browse matrix pages, tier-list pages, scoring methodology, runs/[hash] detail, and i18n mirrors for all entity types
+- **International SEO**: `/{lang}/` routes for 13 non-English languages with **bidirectional** hreflang alternates — English root pages also emit alternates for every locale + `x-default` via `buildLanguageAlternates(path)` in `lib/seo.ts` (fixes the GSC "Crawled - not indexed" duplicate-content cluster where Google was treating localized pages as duplicates without back-references)
+- **Programmatic SEO**: 41 card browse pages at `/cards/browse/` (rare-attacks, ironclad-skills, etc.) + 3 tier-list pages (`/tier-list/{cards,relics,potions}`)
+- **Locale-aware EntityProse**: Detail pages render a short locale-specific paragraph instead of identical English bodies in every locale
+- **Internal linking**: Powers ↔ cards, encounters → monsters, card keywords → keyword hub pages, monster moves → power pages (with tooltips), act pages → encounters/events, tier-list rows → entity detail Stats tab
+- **Open Graph & Twitter Cards**: Per-entity OG images, `summary_large_image` Twitter cards
+- **Canonical URLs**: Every page declares a canonical URL
+
+## Embeddable Widgets
+
+### Tooltip Widget
+Add hoverable tooltips for all 13 entity types to any website:
+```html
+<script src="https://spire-codex.com/widget/spire-codex-tooltip.js"></script>
+<p>Start with [[Bash]] and [[relic:Burning Blood]].</p>
+```
+
+### Changelog Widget
+Embed an interactive changelog viewer:
+```html
+<div id="scx-changelog"></div>
+<script src="https://spire-codex.com/widget/spire-codex-changelog.js"></script>
+```
+
+Full docs: [spire-codex.com/developers](https://spire-codex.com/developers)
+
+## Roadmap
+
+- ~~Individual detail pages~~ ✅
+- ~~Global search~~ ✅
+- ~~Multi-language support (14 languages)~~ ✅
+- ~~SEO (JSON-LD, OG/Twitter, sitemap, hreflang)~~ ✅
+- ~~Tooltip widget (all 13 entity types)~~ ✅
+- ~~Character comparison pages (10 pairs)~~ ✅
+- ~~Keyword hub pages~~ ✅
+- ~~Merchant guide (pricing from decompiled C#)~~ ✅
+- ~~Developer docs + data exports~~ ✅
+- ~~International SEO (13 language landing pages)~~ ✅
+- ~~Card browse matrix (41 programmatic SEO pages)~~ ✅
+- ~~Community guides~~ ✅ — Markdown with YAML frontmatter, submission form, tooltip widget, author socials
+- ~~Game mechanics page~~ ✅ — 27 individual SEO pages: drop rates, combat, map, bosses, secrets & trivia
+- ~~Community runs~~ ✅ — Run submission, browser, shared runs, live stats
+- ~~Card upgrade descriptions~~ ✅ — upgrade_description for all 403 upgradable cards
+- ~~Monster innate powers~~ ✅ — 42 monsters with powers from AfterAddedToRoom
+- ~~Achievement unlock conditions~~ ✅ — Category, character, threshold from C# source
+- ~~Monster attack patterns~~ ✅ — 112 monsters with cycle/random/conditional/mixed AI from C# state machines
+- ~~Event preconditions~~ ✅ — 25 events with IsAllowed() conditions parsed from C# source
+- ~~Multi-version beta browsing~~ ✅ — Version dropdown, all past betas preserved and browsable with changelogs
+- ~~Discord bot~~ ✅ — [Knowledge Demon](https://bot.spire-codex.com): slash commands for every entity (`/card`, `/relic`, `/monster`, `/potion`, `/character`, `/event`, `/power`, `/enchantment`, `/lookup`, `/meta`), Steam-news RSS, plus a full moderation toolkit forked from [Kernel](https://github.com/ptrlrd/kernel)
+- ~~Codex Score & Tier List~~ ✅ — Per-entity grade computed from community runs using **Bayesian shrinkage**: `shrunk = (wins + PRIOR_WEIGHT × baseline) / (n + PRIOR_WEIGHT)`, then scaled to 0–100 and mapped to S/A/B/C/D/F. Prevents tiny-sample noise (a 1-game card going 1/1 doesn't get an S — it regresses to the prior). Pre-warmed on backend startup. Surfaced as `ScoreBadge` on detail-page Stats tab, dedicated tier-list pages, and methodology page at `/leaderboards/scoring`.
+- ~~Detail-page Stats tab~~ ✅ — Score hero badge + prose summary + recent runs links via `EntityRunStats`.
+- **Deck builder** — Interactive deck theorycrafting
+- **Database backend** — Replace per-language JSON loading with PostgreSQL JSONB (or alternative). Run-submission storage already moved off SQLite to MongoDB (May 2026).
+
+## Acknowledgments
+
+Thanks to **vesper-arch**, **terracubist**, **U77654**, **Purple Aspired Dreaming**, **Kobaru**, and **Severi** for QA testing, bug reports, and contributions. The full supporter list — including Ko-fi donors who keep the lights on — lives at [spire-codex.com/thank-you](https://spire-codex.com/thank-you).
+
+## Tech Stack
+
+- **Backend**: Python, FastAPI, Pydantic, slowapi, GZip compression
+- **Runs database**: MongoDB (community stats, leaderboards, user accounts), with a materialized `stats_summary` collection and a leader-elected background refresher. Legacy SQLite path kept as an offline fallback.
+- **Accounts**: Steam OpenID + Discord OAuth, JWT session cookies
+- **Frontend**: Next.js 16 (App Router), TypeScript, Tailwind CSS, 14-language support
+- **Images/CDN**: Cloudflare R2 served via `cdn.spire-codex.com` (webp)
+- **Analytics & observability**: self-hosted Umami, Prometheus + node-exporter
+- **Spine Renderer**: Node.js, Playwright, @esotericsoftware/spine-webgl (WebGL via headless Chrome)
+- **Infrastructure**: Docker, GitHub Actions CI (self-hosted runner) with registry-backed BuildKit cache, Ansible/SSH deploy
+- **Tools**: Python (update pipeline, changelog diffing, image copying)
+
+## License
+
+- **Source code**: [PolyForm Noncommercial 1.0.0](LICENSE.md) — free to use, modify, and redistribute for noncommercial purposes. Selling the software is not permitted.
+- **Hosted API**: [API_TERMS.md](API_TERMS.md) — free for any use within the published rate limits; reach out on Discord or in an issue if you need more.
+- **Game data** (cards, relics, monsters, etc.): © Mega Crit Games. Served here as a community reference under fair-use / educational terms. Do not use this data to recompile, repackage, or redistribute the game.
+
+Contributions are accepted under the same PolyForm Noncommercial 1.0.0 terms — see [CONTRIBUTING.md](CONTRIBUTING.md#license).

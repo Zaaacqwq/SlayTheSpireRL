@@ -1,0 +1,8 @@
+{
+  "_meta": {
+    "status": "not_yet_converted",
+    "note": "Placeholder -- this region hasn't been converted yet (Stage 4 of plan/plan.md's roadmap, 2026-07-10 entry). convert_monsters() in convert_from_spire_codex.py currently only looks at Act 1 (Overgrowth/Underdocks) encounters."
+  },
+  "monsters": {},
+  "encounters": {}
+}
