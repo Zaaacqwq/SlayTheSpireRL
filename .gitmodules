@@ -1,3 +1,4 @@
 [submodule "external/sts2-cli"]
 	path = external/sts2-cli
-	url = https://github.com/wuhao21/sts2-cli.git
+	url = https://github.com/Zaaacqwq/sts2-cli.git
+	branch = rl-v2-protocol-state-machine
