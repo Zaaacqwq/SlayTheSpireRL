@@ -60,7 +60,9 @@ M0 验收已达到当前定义门槛：8 workers steady benchmark 122.81 decisio
 - [x] random/heuristic action 入口。
 - [x] evaluator/trajectory collector、BC loss、GAE、masked candidate pointer policy、checkpoint/resume 初版。
 - [x] TensorBoard logger（无 tensorboard 时 JSONL fallback）和实验配置。
-- [ ] 1,000 局 A0 evaluator、seed isolation 和 episode pollution regression。
+- [x] 1,000 局 A0 evaluator：1,000 episodes、995 正常 game_over、5 异常（3 EngineTimeout、2 ProtocolError）；异常 seed 已独立重试，Defect 140 恢复，Necrobinder 32/Regent 29/Regent 74 稳定失败，Regent 76 稳定协议错误。
+- [x] BC update、PPO update、GAE、Recurrent GRU candidate policy 和 checkpoint/resume 初版。
+- [ ] 清零 5 个真实引擎异常、完成 seed isolation/episode pollution 长测后才能通过 M1。
 
 ## M1 下一步
 
