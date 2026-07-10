@@ -58,9 +58,9 @@ M0 验收已达到当前定义门槛：8 workers steady benchmark 122.81 decisio
 - [x] 统一 observation normalization、实体编码、未知字段告警。
 - [x] trajectory `Transition` schema 和 Parquet/JSONL fallback writer。
 - [x] random/heuristic action 入口。
+- [x] evaluator/trajectory collector、BC loss、GAE、masked candidate pointer policy、checkpoint/resume 初版。
+- [x] TensorBoard logger（无 tensorboard 时 JSONL fallback）和实验配置。
 - [ ] 1,000 局 A0 evaluator、seed isolation 和 episode pollution regression。
-- [ ] BC、Recurrent PPO、GAE、masked pointer policy、checkpoint/resume。
-- [ ] TensorBoard、实验配置和结果归档。
 
 ## M1 下一步
 
