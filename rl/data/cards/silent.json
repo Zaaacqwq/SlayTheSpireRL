@@ -1,7 +1,0 @@
-{
-  "_meta": {
-    "status": "not_yet_converted",
-    "note": "Placeholder -- this class hasn't been run through the spire-codex conversion + manual audit pipeline yet (Stage 3 of plan/plan.md's roadmap, 2026-07-10 entry). convert_cards(color=...) in convert_from_spire_codex.py works for any color already, but its mechanic denylist/unconsumed-var check were only tuned and spot-checked against Ironclad's card text -- running it as-is on another class would silently trust an unaudited result. Some classes also need bespoke subsystems this pipeline doesn't have yet (e.g. Defect's orbs)."
-  },
-  "cards": []
-}

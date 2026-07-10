@@ -10,8 +10,16 @@ mod/bin/
 mod/obj/
 mod/out/
 
-# Trained model checkpoints (regenerable via `uv run python train.py`, large binaries)
-rl/models/*.zip
+# RL v2 local engine artifacts and experiment outputs (never commit game files)
+external/sts2-cli/lib/
+external/sts2-cli/logs/
+rl/checkpoints/
+rl/runs/
+rl/trajectories/
+*.onnx
+*.pt
+*.pth
+*.dll.original
 
 # OS
 .DS_Store

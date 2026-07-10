@@ -1,0 +1,125 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+import json
+import os
+from pathlib import Path
+import queue
+import subprocess
+import threading
+from typing import Any, Mapping, Sequence
+
+from .protocol import ActionCandidate, DecisionState, StepResult, SUPPORTED_PROTOCOL_VERSION, parse_state
+
+
+class EngineError(RuntimeError):
+    pass
+
+
+class EngineTimeout(EngineError):
+    pass
+
+
+@dataclass(frozen=True)
+class RunConfig:
+    character: str
+    seed: str
+    ascension: int = 0
+    lang: str = "en"
+
+
+class EngineClient:
+    """One persistent sts2-cli process with timeout detection and restart."""
+
+    def __init__(self, command: Sequence[str], *, cwd: Path, timeout: float = 10.0, env: Mapping[str, str] | None = None):
+        self.command = tuple(command)
+        self.cwd = Path(cwd)
+        self.timeout = timeout
+        self.env = {**os.environ, **(env or {})}
+        self._proc: subprocess.Popen[str] | None = None
+        self._lines: queue.Queue[str | BaseException] = queue.Queue()
+        self.version: str | None = None
+
+    def _start(self) -> None:
+        self.close()
+        self._lines = queue.Queue()
+        self._proc = subprocess.Popen(self.command, cwd=self.cwd, env=self.env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+        assert self._proc.stdout is not None
+        stream = self._proc.stdout
+
+        def reader() -> None:
+            try:
+                for line in stream:
+                    if line.strip().startswith("{"):
+                        self._lines.put(line)
+            except BaseException as exc:
+                self._lines.put(exc)
+
+        threading.Thread(target=reader, daemon=True).start()
+        ready = self._read()
+        if ready.get("type") != "ready":
+            raise EngineError(f"expected ready handshake, got {ready!r}")
+        self.version = str(ready.get("version", ""))
+        if self.version != SUPPORTED_PROTOCOL_VERSION:
+            raise EngineError(f"protocol version {self.version!r} != {SUPPORTED_PROTOCOL_VERSION!r}")
+
+    def _read(self) -> dict[str, Any]:
+        try:
+            item = self._lines.get(timeout=self.timeout)
+        except queue.Empty as exc:
+            self._kill()
+            raise EngineTimeout(f"no JSON response within {self.timeout}s") from exc
+        if isinstance(item, BaseException):
+            raise EngineError("engine stdout reader failed") from item
+        try:
+            return json.loads(item)
+        except json.JSONDecodeError as exc:
+            raise EngineError(f"invalid JSON response: {item!r}") from exc
+
+    def _request(self, command: Mapping[str, Any]) -> dict[str, Any]:
+        if self._proc is None or self._proc.poll() is not None:
+            self._start()
+        assert self._proc and self._proc.stdin
+        try:
+            self._proc.stdin.write(json.dumps(command, separators=(",", ":")) + "\n")
+            self._proc.stdin.flush()
+        except (BrokenPipeError, OSError) as exc:
+            self._kill()
+            raise EngineError("engine process terminated while writing") from exc
+        return self._read()
+
+    def reset(self, config: RunConfig) -> DecisionState:
+        # start_run is expected to fully replace the previous run; M0 must verify this upstream.
+        raw = self._request({"cmd": "start_run", "character": config.character, "seed": config.seed, "ascension": config.ascension, "lang": config.lang})
+        return parse_state(raw)
+
+    def step(self, action: ActionCandidate) -> StepResult:
+        try:
+            state = parse_state(self._request(action.command()))
+            return StepResult(state, state.phase == "game_over")
+        except EngineError:
+            self._kill()
+            raise
+
+    def _kill(self) -> None:
+        if self._proc is not None and self._proc.poll() is None:
+            self._proc.kill()
+            self._proc.wait(timeout=5)
+        self._proc = None
+
+    def close(self) -> None:
+        if self._proc is not None and self._proc.poll() is None:
+            try:
+                assert self._proc.stdin
+                self._proc.stdin.write('{"cmd":"quit"}\n')
+                self._proc.stdin.flush()
+                self._proc.wait(timeout=2)
+            except (OSError, subprocess.TimeoutExpired):
+                self._kill()
+        self._proc = None
+
+    def __enter__(self) -> "EngineClient":
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()

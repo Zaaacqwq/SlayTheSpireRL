@@ -29,4 +29,4 @@
 ## 常见问题
 
 - **mod 已找到但没加载**:检查 `%APPDATA%\SlayTheSpire2\logs\godot.log`,搜索 `mod`。如果看到 `it is set to disabled in settings`,去游戏内 Mods 设置里手动启用并重启。
-- **游戏版本升级后 mod 编译失败**:STS2 处于抢先体验阶段,API 会随版本变化。先查上游 [STS2MCP issues](https://github.com/Gennadiyev/STS2MCP/issues) 有没有人报告同样的编译错误 / 对应的修复 PR,再对照 `mod/` 里的源码手动修补(参考 `plan/plan.md` 里 v0.107.1 修复的记录作为范例)。
+- **游戏版本升级后 mod 编译失败**:STS2 处于抢先体验阶段,API 会随版本变化。先查上游 [STS2MCP issues](https://github.com/Gennadiyev/STS2MCP/issues) 有没有人报告同样的编译错误 / 对应的修复 PR；RL 后端升级还必须按 `plan/rl_v2_current_stage.md` 记录并重新通过协议、确定性和回归测试。

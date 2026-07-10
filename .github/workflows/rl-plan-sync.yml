@@ -1,0 +1,23 @@
+name: RL plan sync
+
+on:
+  pull_request:
+  push:
+
+jobs:
+  plan-and-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          submodules: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python tools/check_rl_plan_sync.py HEAD^1
+        if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
+      - run: python tools/check_rl_plan_sync.py origin/${{ github.base_ref }}
+        if: github.event_name == 'pull_request'
+      - run: python -m pip install -e "rl[dev]"
+      - run: pytest -q rl/tests
