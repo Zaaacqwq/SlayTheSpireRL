@@ -1,0 +1,27 @@
+AGGRESSION | type=Power target=Self cost=1 rarity=Rare keywords=None vars=None upgrade={'add_innate': 1}
+BARRICADE | type=Power target=Self cost=3 rarity=Rare keywords=None vars=None upgrade={'cost': 2}
+CRIMSON_MANTLE | type=Power target=Self cost=1 rarity=Rare keywords=None vars={'CrimsonMantlePower': 8, 'CrimsonMantle': 8} upgrade={'crimsonmantlepower': '+2'}
+CRUELTY | type=Power target=Self cost=1 rarity=Rare keywords=None vars={'CrueltyPower': 25, 'Cruelty': 25} upgrade={'crueltypower': '+25'}
+DARK_EMBRACE | type=Power target=Self cost=2 rarity=Rare keywords=None vars=None upgrade={'cost': 1}
+DEMON_FORM | type=Power target=Self cost=3 rarity=Rare keywords=None vars={'StrengthPower': 2, 'Strength': 2} upgrade={'strengthpower': '+1'}
+FEEL_NO_PAIN | type=Power target=Self cost=1 rarity=Uncommon keywords=None vars={'Power': 3} upgrade={'power': '+1'}
+INFERNO | type=Power target=Self cost=1 rarity=Uncommon keywords=None vars={'InfernoPower': 6, 'Inferno': 6} upgrade={'infernopower': '+3'}
+JUGGERNAUT | type=Power target=Self cost=2 rarity=Rare keywords=None vars={'JuggernautPower': 6, 'Juggernaut': 6} upgrade={'juggernautpower': '+2'}
+PYRE | type=Power target=Self cost=2 rarity=Rare keywords=None vars={'Energy': 1} upgrade={'energy': '+1'}
+RUPTURE | type=Power target=Self cost=1 rarity=Uncommon keywords=None vars={'StrengthPower': 1, 'Strength': 1} upgrade={'strength': '+1'}
+TANK | type=Power target=Self cost=1 rarity=Rare keywords=None vars=None upgrade={'cost': 0}
+UNMOVABLE | type=Power target=Self cost=2 rarity=Rare keywords=None vars=None upgrade={'cost': 1}
+VICIOUS | type=Power target=Self cost=1 rarity=Uncommon keywords=None vars={'Cards': 1} upgrade={'cards': '+1'}
+ASHEN_STRIKE | type=Attack target=AnyEnemy cost=1 rarity=Uncommon keywords=None vars={'CalculationBase': 6, 'ExtraDamage': 3, 'CalculatedDamage': 6} upgrade={'extradamage': '+1'}
+BATTLE_TRANCE | type=Skill target=Self cost=0 rarity=Uncommon keywords=None vars={'Cards': 3} upgrade={'cards': '+1'}
+DRUM_OF_BATTLE | type=Skill target=Self cost=1 rarity=Uncommon keywords=None vars={'Cards': 2, 'Energy': 2} upgrade={'energy': '+1'}
+EVIL_EYE | type=Skill target=Self cost=1 rarity=Uncommon keywords=None vars={'Block': 8} upgrade={'block': '+3'}
+FIEND_FIRE | type=Attack target=AnyEnemy cost=2 rarity=Rare keywords=['Exhaust'] vars={'Damage': 7} upgrade={'damage': '+3'}
+FORGOTTEN_RITUAL | type=Skill target=Self cost=1 rarity=Uncommon keywords=['Exhaust'] vars={'Energy': 3} upgrade={'energy': '+1'}
+MANGLE | type=Attack target=AnyEnemy cost=3 rarity=Rare keywords=None vars={'StrengthLoss': 10, 'Damage': 15} upgrade={'damage': '+5', 'strengthloss': '+5'}
+MOLTEN_FIST | type=Attack target=AnyEnemy cost=1 rarity=Common keywords=['Exhaust'] vars={'Damage': 10} upgrade={'damage': '+4'}
+PACTS_END | type=Attack target=AllEnemies cost=0 rarity=Rare keywords=None vars={'Damage': 17, 'Cards': 3} upgrade={'damage': '+6'}
+PILLAGE | type=Attack target=AnyEnemy cost=1 rarity=Uncommon keywords=None vars={'Damage': 6} upgrade={'damage': '+3'}
+SECOND_WIND | type=Skill target=Self cost=1 rarity=Uncommon keywords=None vars={'Block': 5} upgrade={'block': '+2'}
+SPITE | type=Attack target=AnyEnemy cost=0 rarity=Uncommon keywords=None vars={'Damage': 5, 'Repeat': 2} upgrade={'repeat': '+1'}
+THRASH | type=Attack target=AnyEnemy cost=1 rarity=Rare keywords=None vars={'Damage': 4} upgrade={'damage': '+2'}
