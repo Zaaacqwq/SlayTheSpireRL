@@ -64,6 +64,30 @@ M0 验收已达到当前定义门槛：8 workers steady benchmark 122.81 decisio
 - 此前固定的 `906751c5ddd4e30aa16bf899ac1962c729a38293`（nested-selector 与 transient card-play 补丁）为本修复的父 commit，二者叠加后 3 个 timeout seed 回归通过。
 - 已创建 submodule 本地分支 `rl-v2-protocol-state-machine`，后续改动只进入该 fork；状态机设计见 `docs/RL_V2_CLI_STATE_MACHINE.md`。
 
+## 有意的动作空间偏离（非修复，需在 M2 前复核）
+
+- **事件内 card reward 不暴露 `skip_card_reward`**（`protocol.py::legal_actions`，由引擎的 `from_event=true` 触发）。这是**客户端屏蔽，不是根治**：引擎侧 `can_skip` 仍为 `true`、`SkipReward()` 仍然存在，直接驱动 CLI 或改动作空间仍可复现"skip 回到同一事件状态"的活锁。代价是 agent 永远无法跳过事件奖励，与真实游戏行为不一致。普通战斗奖励不受影响（`test_combat_card_reward_remains_skippable` 守护双向行为）。
+- 若 M2 需要还原完整动作空间，正确做法是在引擎侧让 skip 真正推进事件状态，而不是继续在客户端隐藏。
+
+## M1 训练基础设施完成项
+
+- [x] `torch` / `pyarrow` 补进 `rl/pyproject.toml` 的 `train` / `export` extras（此前 `dependencies = []`，训练侧代码从未被执行过）。
+- [x] 新增 `sts2rl.features`：动作 one-hot + 索引槽位的定长候选编码（`CANDIDATE_FEATURE_DIM`），变长候选列表 padding + mask。此前观测与模型之间**没有任何桥接**，训练代码无法消费引擎数据。
+- [x] 修复 `collect_episode` 的轨迹语义 bug：原实现在 `step()` 之后记录，`state`/`legal_actions` 存的是动作执行后的新状态，而 `action` 选自旧状态，导致 BC 的目标索引未定义、会静默毒化训练数据。现记录决策发生时的状态与其候选集（`test_transition_records_the_state_the_action_was_chosen_from` 守护）。
+- [x] 训练环路可学习性：固定 batch 过拟合从 1.4236 降到 0.0538，证明 candidate encoder → pointer → masked cross-entropy 的梯度通路完整。
+
 ## M1 验收记录
 
 P5 固定主仓库实现 commit `46b6a770ed145c7098660c36676024e8572f8141`、CLI fork `18a03cc3ebbff8ead5a6175fb0b631496c773c28`、协议 `0.2.0`、macOS arm64、6 persistent workers、timeout 10s、固定 seeds `m1-a0-<character>-<0..199>`。逐局结果保存在本地忽略目录 `rl/runs/m1_a0_1000.json`：1,000 个唯一 seed，steps min/median/max = 11/62/138，episode seconds min/median/max = 0.48/1.50/10.97；错误和非终止均为 0。新的正确状态 hash anchor 已冻结到 `rl/schema/p0_baseline_hash.json`。
+
+### 引擎侧复核（独立复跑，2026-07-11）
+
+1,000 局 A0 在同一机器上独立重跑：`ERRORS 0 / NONTERMINAL 0`，280.5s；逐 seed 与 `rl/runs/m1_a0_1000.json` 的 steps/outcome **全部一致（1000/1000）**，确认结果可复现且无非确定性。`tools/m1_seed_isolation.py` 独立复跑，四个 hash 均为 `01d53fd17756833c54cc7b2543aa8477f0b1a7a944b5a07e71f51304cee47f5e`，`passed: true`。
+
+### 训练基础设施验收（`tools/m1_training_e2e.py`，2026-07-11）
+
+真实引擎端到端：五角色各 4 局共 20 局采集到 1,206 个决策 → `sts2rl.features` 编码 → BC 更新 → step 10 落 checkpoint → **在全新进程中 resume** 续训到 step 20。resumed 与 uninterrupted 的 20 步 loss 序列完全相同，最终参数 hash 同为 `f3b148cabb7c83a5daae32f6efe660773a09a4ecfe2fa0faa03989beb41d3927`，`passed: true`。跨进程是关键：进程内 resume 只能证明 `load_state_dict` 没报错，不能证明 checkpoint 足以在进程消失后重建训练。
+
+注意随机策略数据的 BC loss 不会下降（克隆随机策略的最优解就是候选上的均匀分布，loss 贴在熵下界 ≈ ln(候选数)），因此可学习性用**真实 batch 过拟合**单独验证：1.4236 → 0.0538。
+
+`pytest` 全量 23 passed（此前 `test_m1.py` 因 torch 未安装在 collection 阶段即失败，从未执行过）。

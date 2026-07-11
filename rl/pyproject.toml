@@ -11,6 +11,8 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+train = ["torch>=2.2"]
+export = ["pyarrow>=15.0"]
 
 [project.scripts]
 sts2-m0 = "sts2rl.m0:main"

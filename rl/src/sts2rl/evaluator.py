@@ -21,10 +21,16 @@ def collect_episode(client: EngineClient, config: RunConfig, *, policy="random",
     state = client.reset(config); transitions: list[Transition] = []; rng = random.Random(seed); steps = 0
     try:
         while steps < max_steps and state.phase != "game_over":
+            # Everything describing the decision must be captured from the state the
+            # action was chosen in. Recording the post-step state alongside the action
+            # leaves the behavior-cloning target index undefined, because the action is
+            # not generally a member of the next state's candidate list.
+            decision, offered = state.raw, state.candidates
+            observed = normalize_state(decision)
             action = random_action(state, rng) if policy == "random" else heuristic_action(state)
-            before = normalize_state(state.raw)
             result = client.step(action); state = result.state
-            transitions.append(Transition(config.seed, steps, state.raw, {"phase": before.phase, "global": before.global_features}, [a.command() for a in state.candidates], action.command(), 1.0 if result.terminated and state.raw.get("victory") is True else -1.0 if result.terminated else 0.0, result.terminated, str(state.raw.get("victory")) if result.terminated else None, client.version))
+            outcome = state.raw.get("victory") if result.terminated else None
+            transitions.append(Transition(config.seed, steps, decision, {"phase": observed.phase, "global": observed.global_features}, [a.command() for a in offered], action.command(), 1.0 if outcome is True else -1.0 if result.terminated else 0.0, result.terminated, str(outcome) if result.terminated else None, client.version))
             steps += 1
         return EpisodeResult(config.character, config.seed, state.raw.get("victory") if state.phase == "game_over" else None, steps), transitions
     except Exception as exc:

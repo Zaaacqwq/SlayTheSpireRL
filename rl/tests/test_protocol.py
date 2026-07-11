@@ -31,6 +31,16 @@ def test_upstream_action_names_are_used():
     assert shop[-1].action == "leave_room"
 
 
+def test_combat_card_reward_remains_skippable():
+    # The from_event suppression below must not leak into ordinary combat rewards,
+    # where skipping is a real choice rather than a no-op back into the same state.
+    combat = legal_actions({"decision": "card_reward", "cards": [{"index": 0}]})
+    assert [candidate.action for candidate in combat] == ["select_card_reward", "skip_card_reward"]
+
+    unskippable = legal_actions({"decision": "card_reward", "cards": [{"index": 0}], "can_skip": False})
+    assert [candidate.action for candidate in unskippable] == ["select_card_reward"]
+
+
 def test_forced_card_reward_does_not_offer_noop_skip():
     forced = legal_actions({"decision": "card_reward", "cards": [{"index": 0}], "from_event": True})
     assert [candidate.action for candidate in forced] == ["select_card_reward"]
