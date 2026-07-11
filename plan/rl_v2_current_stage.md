@@ -66,4 +66,4 @@ M0 验收已达到当前定义门槛：8 workers steady benchmark 122.81 decisio
 
 ## M1 验收记录
 
-P5 使用主仓库 `rl-v2` 工作树、CLI fork `18a03cc3`、协议 `0.2.0`、macOS arm64、6 persistent workers、timeout 10s、固定 seeds `m1-a0-<character>-<0..199>`。逐局结果保存在本地忽略目录 `rl/runs/m1_a0_1000.json`：1,000 个唯一 seed，steps min/median/max = 11/62/138，episode seconds min/median/max = 0.48/1.50/10.97；错误和非终止均为 0。M2 开始前应先提交本次主仓库变更并冻结新的正确状态 hash anchor。
+P5 固定主仓库实现 commit `46b6a770ed145c7098660c36676024e8572f8141`、CLI fork `18a03cc3ebbff8ead5a6175fb0b631496c773c28`、协议 `0.2.0`、macOS arm64、6 persistent workers、timeout 10s、固定 seeds `m1-a0-<character>-<0..199>`。逐局结果保存在本地忽略目录 `rl/runs/m1_a0_1000.json`：1,000 个唯一 seed，steps min/median/max = 11/62/138，episode seconds min/median/max = 0.48/1.50/10.97；错误和非终止均为 0。新的正确状态 hash anchor 已冻结到 `rl/schema/p0_baseline_hash.json`。
