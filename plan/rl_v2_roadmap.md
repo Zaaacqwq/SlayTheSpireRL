@@ -1,11 +1,11 @@
 # STS2 RL v2 路线图
 
-状态：**M0、M1 已完成**。M2–M6 均未开始。
+状态：**M0、M1 已完成；M2 进行中（2026-07-11 开始）**。M3–M6 均未开始。
 
 ## 固定架构决策
 
 - 训练后端只使用真实 `sts2.dll`；不重写游戏规则，不提交 DLL 或资产。
-- `external/sts2-cli` 是固定 commit 的 Git submodule；当前固定 fork commit `7fe000619930a199ab1cfccdbde727a0b30613af`，基于上游 MIT。
+- `external/sts2-cli` 是固定 commit 的 Git submodule；当前固定 fork commit `bd7c512f46c3ffd2af91d11d5c3af11bed14bf0f`，基于上游 MIT。
 - Python 接口为 `EngineClient.reset(RunConfig) -> DecisionState`、`step(ActionCandidate) -> StepResult`、`close()`；每 worker 一个持久进程，超时后重启。
 - 状态使用可变实体编码、phase embedding、GRU 历史、Transformer、动态候选 pointer head 和 value head；未知内容进入 `UNK` 并告警。
 - 自定义 PyTorch Recurrent Masked PPO，支持 BC；默认 gamma 0.999、GAE 0.95、clip 0.2、AdamW。
@@ -22,7 +22,7 @@
 
 进程池、规范化、Gymnasium 环境、Transformer/GRU pointer policy、BC、PPO/GAE、Parquet trajectory、checkpoint/恢复、统一评估和 TensorBoard。随机 agent 无干预 1,000 局 A0 实测 1000/1000 `game_over`、EngineTimeout/ProtocolError/非终止均为 0；重复、跨角色和跨 worker seed hash 一致，timeout 后无孤儿进程。
 
-### M2 — Ironclad（未开始）
+### M2 — Ironclad（进行中，2026-07-11 开始）
 
 按普通战斗、混合战斗、Act 1、完整 A0 curriculum 推进。最终 5 个初始化、隔离 1,000 test seeds，A0 平均通关率 ≥40%，95% bootstrap CI 下界超过启发式，非法动作 0、timeout <1%，完成 reward ablation 和拆分报告。
 

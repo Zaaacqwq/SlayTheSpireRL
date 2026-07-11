@@ -3,6 +3,8 @@ from __future__ import annotations
 import torch
 from torch import nn, Tensor
 
+from .entities import ENTITY_KINDS, ENTITY_NUMERIC_DIM, PHASES
+
 
 class CandidatePolicy(nn.Module):
     """Small masked candidate scorer; variable candidate count is supported."""
@@ -33,3 +35,45 @@ class RecurrentCandidatePolicy(CandidatePolicy):
         logits = self.pointer(torch.tanh(candidates + encoded.unsqueeze(-2))).squeeze(-1)
         if mask is not None: logits = logits.masked_fill(~mask, torch.finfo(logits.dtype).min)
         return logits, self.value(encoded).squeeze(-1), hidden
+
+
+class EntityTransformerPolicy(nn.Module):
+    """Roadmap architecture core: entity transformer + phase embedding + pointer head.
+
+    Consumes ``entities.encode_entity_batch`` output. Padded entity slots are
+    excluded via attention key padding; padded candidates score dtype-min.
+    """
+
+    def __init__(self, vocab_size: int, *, global_dim: int = 8, candidate_dim: int = 16,
+                 hidden: int = 128, heads: int = 4, layers: int = 2):
+        super().__init__()
+        self.type_embed = nn.Embedding(len(ENTITY_KINDS) + 1, hidden)
+        self.id_embed = nn.Embedding(vocab_size, hidden)
+        self.numeric = nn.Linear(ENTITY_NUMERIC_DIM, hidden)
+        self.phase_embed = nn.Embedding(len(PHASES), hidden)
+        self.global_proj = nn.Linear(global_dim, hidden)
+        layer = nn.TransformerEncoderLayer(hidden, heads, hidden * 4, dropout=0.0, batch_first=True)
+        self.encoder = nn.TransformerEncoder(layer, layers)
+        self.candidate = nn.Linear(candidate_dim, hidden)
+        self.pointer = nn.Linear(hidden, 1)
+        self.value = nn.Linear(hidden, 1)
+
+    def forward(self, global_features: Tensor, entities: dict[str, Tensor],
+                candidate_features: Tensor, candidate_mask: Tensor | None = None) -> tuple[Tensor, Tensor]:
+        tokens = (
+            self.type_embed(entities["entity_type"])
+            + self.id_embed(entities["entity_id"])
+            + self.numeric(entities["entity_numeric"])
+        )
+        entity_mask = entities["entity_mask"]
+        encoded = self.encoder(tokens, src_key_padding_mask=~entity_mask)
+        weights = entity_mask.unsqueeze(-1).to(encoded.dtype)
+        pooled = (encoded * weights).sum(-2) / weights.sum(-2).clamp_min(1.0)
+        context = torch.tanh(
+            pooled + self.global_proj(global_features) + self.phase_embed(entities["phase"])
+        )
+        candidates = self.candidate(candidate_features)
+        logits = self.pointer(torch.tanh(candidates + context.unsqueeze(-2))).squeeze(-1)
+        if candidate_mask is not None:
+            logits = logits.masked_fill(~candidate_mask, torch.finfo(logits.dtype).min)
+        return logits, self.value(context).squeeze(-1)
