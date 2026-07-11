@@ -22,6 +22,23 @@ class EngineTimeout(EngineError):
     pass
 
 
+class EngineFatal(EngineError):
+    """The CLI poisoned its engine state and requires a fresh process."""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(f"{code}: {message}")
+        self.code = code
+        self.detail = message
+
+
+def check_engine_response(response: Mapping[str, Any]) -> None:
+    if response.get("type") == "error" and response.get("fatal") is True:
+        raise EngineFatal(
+            str(response.get("code", "engine_fatal")),
+            str(response.get("message", "engine process is unusable")),
+        )
+
+
 @dataclass(frozen=True)
 class RunConfig:
     character: str
@@ -115,7 +132,17 @@ class EngineClient:
         except (BrokenPipeError, OSError) as exc:
             self._kill()
             raise EngineError("engine process terminated while writing") from exc
-        return self._read()
+        response = self._read()
+        try:
+            check_engine_response(response)
+        except EngineFatal as exc:
+            detail = (
+                f"{exc.detail}; recent_trace={self.trace[-5:]!r}; "
+                f"stderr_tail={list(self.stderr_tail)[-20:]!r}"
+            )
+            self._kill()
+            raise EngineFatal(exc.code, detail) from exc
+        return response
 
     def reset(self, config: RunConfig) -> DecisionState:
         # start_run is expected to fully replace the previous run; M0 must verify this upstream.

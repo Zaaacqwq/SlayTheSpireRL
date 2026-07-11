@@ -47,12 +47,14 @@ M0 验收已达到当前定义门槛：8 workers steady benchmark 122.81 decisio
 - [x] TensorBoard logger（无 tensorboard 时 JSONL fallback）和实验配置。
 - [x] 1,000 局 A0 evaluator：1,000 episodes、995 正常 game_over、5 异常（3 EngineTimeout、2 ProtocolError）；异常 seed 已独立重试，Defect 140 恢复，Necrobinder 32/Regent 29/Regent 74 稳定失败，Regent 76 稳定协议错误。
 - [x] BC update、PPO update、GAE、Recurrent GRU candidate policy 和 checkpoint/resume 初版。
-- [x] 定位并修复 nested card-select timeout 根因，并完成非重入 FIFO dispatcher、quiescence 和同步 selector bridge；固定为本地 fork commit `18a03cc3ebbff8ead5a6175fb0b631496c773c28`。
+- [x] 定位并修复 nested card-select timeout 根因，并完成非重入 FIFO dispatcher、quiescence、同步 selector bridge 和 fail-closed poison；固定为本地 fork commit `7fe000619930a199ab1cfccdbde727a0b30613af`。
 - [x] 5 个原失败 seed 有界回归（各 80 steps）：Defect-140、Necrobinder-32、Regent-29、Regent-76、Regent-74 全部 `error: null`，无 EngineTimeout/ProtocolError，单步最长 2.03s（原为 10s 超时）。脚本 `tools/m1_regress_failed_seeds.py`、`scratchpad/bounded_regress.py`。
 - [x] 全量 1,000 局 A0 evaluator 复跑：6 个持久 worker、10 秒单请求 timeout、五角色各 200 局；1000/1000 到达 `game_over`，EngineTimeout 0、ProtocolError 0、非终止 0，总耗时 280.0 秒。
 - [x] seed isolation/episode pollution：同 worker 重复 reset、跨角色 episode 后 reset、另一 worker reset 的 anchor hash 均为 `01d53fd17756833c54cc7b2543aa8477f0b1a7a944b5a07e71f51304cee47f5e`。
 - [x] evaluator 改为每 worker 一个持久 CLI，直接运行 `dotnet Sts2Headless.dll`；修复 timeout 只杀 `dotnet run` 父进程而遗留子进程的问题。P5 后孤儿进程为 0。
 - [x] 200 局预验收发现事件内 selector reward 的 skip 可形成相同状态活锁；event selector reward 不再暴露该 no-op skip，Defect-23 从 2,000 steps 非终止恢复为 78 steps `game_over`。
+- [x] M2 前引擎加固：quiescence/`RunInline`/dispatcher callback/`Send` 超时或 fault 会永久 poison 当前进程、取消未开始的 FIFO callback、返回 fatal error 并由 Python kill/restart；evaluator 遇到任一错误或非终止以非零退出。
+- [x] fail-closed 首轮 200 局把此前被吞掉的 fault 显式化为 7 个 EngineFatal（DenseVegetation 4、JungleMazeAdventure 1、WhisperingHollow 2）。窄范围修复表现层调用和满药水槽奖励集后，200/200 和最终 1000/1000 均为 `game_over`，fatal/timeout/protocol error/非终止均为 0；最终耗时 273.0s，孤儿进程 0。
 
 ### M1 异常修复记录
 
@@ -61,6 +63,8 @@ M0 验收已达到当前定义门槛：8 workers steady benchmark 122.81 decisio
 - **修复**：把该自旋循环从「迭代次数上限」改为基于 `Stopwatch` 的真实 1000ms 时间上限，并在出现 pending 选牌/奖励时提前退出；固定为本地 fork commit `5eef59f1b696367642b48f7de8a0d6739502ff2c`。
 - **最终根治**：`HeadlessCardSelector.ResolvePending` 采用 clear-before-complete，nested selection 不再被外层清理覆盖；`SingleThreadDispatcher.Post` 只入 FIFO、不内联重入；命令完成不再依赖 `ActionExecutor.IsRunning`。
 - 游戏的 `ICardSelector.GetSelectedCardReward` 是同步阻塞接口，event/rest/shop 四个入口保留单飞、显式跟踪并在选择后 join 的 bridge。若要彻底删除该 bridge，需要协议级 suspended-work-item broker，不能只靠 `async/await`。
+- `SingleThreadDispatcher.Send` 使用 5 秒上限；超时后不是让 callback 留在队列稍后执行，而是原子取消所有尚未开始的 work item 并 poison 进程。`DispatcherSelfTest` 固定验证 quiescence timeout、Send timeout、队列取消和 poison 后拒绝执行。
+- headless 表现层修复不再伪造全局 `NGame.Instance`；音频 getter/方法、表现层 wait 和 `DenseVegetation.Rest` 的唯一 rumble 调用在窄范围 no-op。可选药水奖励在槽满时保留已领取奖励并 skip 剩余奖励集，匹配 UI 可达结果。
 - 此前固定的 `906751c5ddd4e30aa16bf899ac1962c729a38293`（nested-selector 与 transient card-play 补丁）为本修复的父 commit，二者叠加后 3 个 timeout seed 回归通过。
 - 已创建 submodule 本地分支 `rl-v2-protocol-state-machine`，后续改动只进入该 fork；状态机设计见 `docs/RL_V2_CLI_STATE_MACHINE.md`。
 
@@ -78,7 +82,7 @@ M0 验收已达到当前定义门槛：8 workers steady benchmark 122.81 decisio
 
 ## M1 验收记录
 
-P5 固定主仓库实现 commit `46b6a770ed145c7098660c36676024e8572f8141`、CLI fork `18a03cc3ebbff8ead5a6175fb0b631496c773c28`、协议 `0.2.0`、macOS arm64、6 persistent workers、timeout 10s、固定 seeds `m1-a0-<character>-<0..199>`。逐局结果保存在本地忽略目录 `rl/runs/m1_a0_1000.json`：1,000 个唯一 seed，steps min/median/max = 11/62/138，episode seconds min/median/max = 0.48/1.50/10.97；错误和非终止均为 0。新的正确状态 hash anchor 已冻结到 `rl/schema/p0_baseline_hash.json`。
+P5 初始实现 commit `46b6a770ed145c7098660c36676024e8572f8141`；M2 前 fail-closed CLI 固定为 `7fe000619930a199ab1cfccdbde727a0b30613af`。协议 `0.2.0`、macOS arm64、6 persistent workers、timeout 10s、固定 seeds `m1-a0-<character>-<0..199>`。poison-enabled 逐局结果保存在本地忽略目录 `rl/runs/m1_a0_1000_hardened.json`：1,000 个唯一 seed，steps min/median/max = 11/62/138，episode seconds min/median/max = 0.47/1.48/10.97；错误和非终止均为 0。正确状态 hash anchor 仍与 `rl/schema/p0_baseline_hash.json` 逐位一致。
 
 ### 引擎侧复核（独立复跑，2026-07-11）
 
@@ -90,4 +94,4 @@ P5 固定主仓库实现 commit `46b6a770ed145c7098660c36676024e8572f8141`、CLI
 
 注意随机策略数据的 BC loss 不会下降（克隆随机策略的最优解就是候选上的均匀分布，loss 贴在熵下界 ≈ ln(候选数)），因此可学习性用**真实 batch 过拟合**单独验证：1.4236 → 0.0538。
 
-`pytest` 全量 23 passed（此前 `test_m1.py` 因 torch 未安装在 collection 阶段即失败，从未执行过）。
+`pytest` 全量 25 passed（含 fatal response kill/restart）；dispatcher 自测 PASS，C# build 0 errors。当前环境仅有 PyTorch 的 NumPy 未安装 warning，不影响测试结果。

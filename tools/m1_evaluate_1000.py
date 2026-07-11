@@ -119,3 +119,5 @@ if __name__ == "__main__":
         "SECONDS",
         round(time.perf_counter() - start, 1),
     )
+    if any(row["error"] is not None or row["phase"] != "game_over" for row in output):
+        raise SystemExit(1)
