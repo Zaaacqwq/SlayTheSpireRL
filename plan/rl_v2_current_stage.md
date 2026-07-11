@@ -82,7 +82,7 @@ M0 验收已达到当前定义门槛：8 workers steady benchmark 122.81 decisio
 
 ## M1 验收记录
 
-P5 初始实现 commit `46b6a770ed145c7098660c36676024e8572f8141`；M2 前 fail-closed CLI 固定为 `7fe000619930a199ab1cfccdbde727a0b30613af`。协议 `0.2.0`、macOS arm64、6 persistent workers、timeout 10s、固定 seeds `m1-a0-<character>-<0..199>`。poison-enabled 逐局结果保存在本地忽略目录 `rl/runs/m1_a0_1000_hardened.json`：1,000 个唯一 seed，steps min/median/max = 11/62/138，episode seconds min/median/max = 0.47/1.48/10.97；错误和非终止均为 0。正确状态 hash anchor 仍与 `rl/schema/p0_baseline_hash.json` 逐位一致。
+P5 初始实现 commit `46b6a770ed145c7098660c36676024e8572f8141`；M2 前 fail-closed 主仓库 commit `c22d4afe802f39ef7422fbca6c9af04a8c5460ba`，CLI 固定为 `7fe000619930a199ab1cfccdbde727a0b30613af`。协议 `0.2.0`、macOS arm64、6 persistent workers、timeout 10s、固定 seeds `m1-a0-<character>-<0..199>`。poison-enabled 逐局结果保存在本地忽略目录 `rl/runs/m1_a0_1000_hardened.json`：1,000 个唯一 seed，steps min/median/max = 11/62/138，episode seconds min/median/max = 0.47/1.48/10.97；错误和非终止均为 0。正确状态 hash anchor 仍与 `rl/schema/p0_baseline_hash.json` 逐位一致。
 
 ### 引擎侧复核（独立复跑，2026-07-11）
 
