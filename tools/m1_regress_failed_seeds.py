@@ -1,10 +1,16 @@
 from __future__ import annotations
-import json, os, random, sys, time
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'rl', 'src'))
+import json, os, random, shutil, sys, time
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / 'rl' / 'src'))
 from sts2rl.engine import EngineClient, RunConfig
 
-ROOT = os.path.join(os.path.dirname(__file__), '..', 'external', 'sts2-cli')
-CMD = ['dotnet', 'run', '--no-build', '--project', 'src/Sts2Headless/Sts2Headless.csproj']
+ROOT = REPO_ROOT / 'external' / 'sts2-cli'
+DOTNET = os.environ.get('DOTNET_HOST_PATH') or shutil.which('dotnet')
+if not DOTNET:
+    raise SystemExit('dotnet not found (set DOTNET_HOST_PATH)')
+CMD = [DOTNET, str(ROOT / 'src' / 'Sts2Headless' / 'bin' / 'Debug' / 'net9.0' / 'Sts2Headless.dll')]
 
 FAILED = [
     ('Defect', 140),

@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import queue
+import signal
 import subprocess
 import threading
 from collections import deque
@@ -46,7 +47,25 @@ class EngineClient:
     def _start(self) -> None:
         self.close()
         self._lines = queue.Queue()
-        self._proc = subprocess.Popen(self.command, cwd=self.cwd, env=self.env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+        popen_options: dict[str, Any] = {}
+        if os.name == "posix":
+            # Own the whole process group. Commands such as ``dotnet run`` spawn
+            # the app as a child; killing only the wrapper leaked Sts2Headless
+            # processes after timeouts and caused cascading evaluator failures.
+            popen_options["start_new_session"] = True
+        elif os.name == "nt":
+            popen_options["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        self._proc = subprocess.Popen(
+            self.command,
+            cwd=self.cwd,
+            env=self.env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            **popen_options,
+        )
         assert self._proc.stdout is not None
         stream = self._proc.stdout
         err_stream = self._proc.stderr
@@ -117,8 +136,22 @@ class EngineClient:
 
     def _kill(self) -> None:
         if self._proc is not None and self._proc.poll() is None:
-            self._proc.kill()
-            self._proc.wait(timeout=5)
+            proc = self._proc
+            try:
+                if os.name == "posix":
+                    os.killpg(proc.pid, signal.SIGKILL)
+                elif os.name == "nt":
+                    subprocess.run(
+                        ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=False,
+                    )
+                else:
+                    proc.kill()
+                proc.wait(timeout=5)
+            except (ProcessLookupError, subprocess.TimeoutExpired):
+                pass
         self._proc = None
 
     def close(self) -> None:

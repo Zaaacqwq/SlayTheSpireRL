@@ -109,7 +109,11 @@ def legal_actions(state: Mapping[str, Any]) -> tuple[ActionCandidate, ...]:
     elif phase == "card_reward":
         for card in state.get("cards", state.get("options", [])):
             out.append(ActionCandidate("select_card_reward", {"card_index": card["index"]}))
-        out.append(ActionCandidate("skip_card_reward", {}))
+        # Selector-driven event rewards can return to an identical event option
+        # when skipped (The Future of Potions), creating a legal no-op cycle.
+        # Ordinary combat rewards remain skippable.
+        if state.get("can_skip", True) and not state.get("from_event", False):
+            out.append(ActionCandidate("skip_card_reward", {}))
     elif phase in {"event_choice", "rest_site"}:
         for option in state.get("options", []):
             if not option.get("is_locked", False) and option.get("is_enabled", True):

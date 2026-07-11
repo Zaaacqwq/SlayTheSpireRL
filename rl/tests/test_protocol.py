@@ -29,3 +29,8 @@ def test_upstream_action_names_are_used():
     assert reward[0].action == "select_card_reward"
     shop = legal_actions({"decision": "shop", "cards": [], "relics": [], "potions": []})
     assert shop[-1].action == "leave_room"
+
+
+def test_forced_card_reward_does_not_offer_noop_skip():
+    forced = legal_actions({"decision": "card_reward", "cards": [{"index": 0}], "from_event": True})
+    assert [candidate.action for candidate in forced] == ["select_card_reward"]
