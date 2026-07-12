@@ -203,12 +203,20 @@ def ppo_update_epoch(
         advantage_tensor = (advantage_tensor - advantage_tensor.mean()) / (advantage_tensor.std() + 1e-8)
     return_tensor = torch.tensor(returns, dtype=torch.float32)
 
+    device = next(model.parameters()).device
+    advantage_tensor = advantage_tensor.to(device)
+    return_tensor = return_tensor.to(device)
     order = torch.randperm(len(steps), generator=generator)
     totals = {"loss": 0.0, "policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0}
     batches = 0
     for start in range(0, len(steps), config.minibatch_size):
         chosen = order[start:start + config.minibatch_size].tolist()
         batch = encode_update_batch([steps[i] for i in chosen], vocab, model.hidden_size)
+        batch = {
+            key: ({k: v.to(device) for k, v in value.items()}
+                  if isinstance(value, dict) else value.to(device))
+            for key, value in batch.items()
+        }
         logits, values, _ = model(
             batch["global"], batch["entities"], batch["candidates"], batch["mask"],
             candidate_slots=batch["slots"], hidden=batch["hidden"],

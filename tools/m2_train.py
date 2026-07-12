@@ -23,6 +23,7 @@ import torch
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "rl" / "src"))
 from sts2rl.agent import PolicyAgent
+from sts2rl.batch_inference import BatchedAgent
 from sts2rl.checkpoint import load_checkpoint, save_checkpoint
 from sts2rl.curriculum import CurriculumStage, Loadout, ironclad_stages
 from sts2rl.engine import EngineClient
@@ -66,9 +67,10 @@ def train_seed_stream(offset: int = 0):
 
 def collect_iteration(
     clients: list[EngineClient], stage: CurriculumStage, seeds: list[str],
-    agent: PolicyAgent, config: PPOConfig,
+    agent, config: PPOConfig,
 ):
-    lock = threading.Lock()
+    # BatchedAgent is internally thread-safe; PolicyAgent needs the lock.
+    lock = None if isinstance(agent, BatchedAgent) else threading.Lock()
     buckets = [seeds[i::len(clients)] for i in range(len(clients))]
 
     def worker(client: EngineClient, bucket: list[str]):
@@ -89,10 +91,10 @@ def collect_iteration(
 
 def evaluate_stage(
     clients: list[EngineClient], stage: CurriculumStage, seeds: list[str],
-    agent: PolicyAgent, config: PPOConfig,
+    agent, config: PPOConfig,
 ) -> dict[str, float]:
     records = []
-    lock = threading.Lock()
+    lock = None if isinstance(agent, BatchedAgent) else threading.Lock()
     buckets = [seeds[i::len(clients)] for i in range(len(clients))]
 
     def worker(client: EngineClient, bucket: list[str]):
@@ -132,6 +134,7 @@ def main() -> int:
     parser.add_argument("--terminal-only", action="store_true", help="reward ablation: no floor shaping")
     parser.add_argument("--init-seed", type=int, default=0)
     parser.add_argument("--lr", type=float, default=3e-4)
+    parser.add_argument("--device", default="cpu", help="cpu / cuda / mps")
     args = parser.parse_args()
 
     if not os.environ.get("STS2_GAME_DIR"):
@@ -149,12 +152,15 @@ def main() -> int:
         episodes_per_iteration=args.episodes_per_iteration,
         floor_shaping=not args.terminal_only,
     )
+    device = torch.device(args.device)
     model = EntityRecurrentPolicy(
         vocab_size=vocab.size, candidate_dim=CANDIDATE_FEATURE_DIM,
         hidden=args.hidden, heads=args.heads, layers=args.layers,
-    )
+    ).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
-    agent = PolicyAgent(model, vocab)
+    # On an accelerator, batch concurrent workers' decisions into one forward.
+    agent = (BatchedAgent(model, vocab, max_batch=max(args.workers, 2))
+             if device.type != "cpu" else PolicyAgent(model, vocab))
 
     run_dir = REPO_ROOT / "rl" / "runs" / args.run_name
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -248,6 +254,8 @@ def main() -> int:
                     stage_index += 1
                     print(json.dumps({"advanced_to": stages[stage_index].name, "iteration": iteration}))
     finally:
+        if isinstance(agent, BatchedAgent):
+            agent.close()
         for client in clients:
             client.close()
         (run_dir / "history.jsonl").write_text(

@@ -29,6 +29,7 @@ class PolicyAgent:
         self.model = model
         self.vocab = vocab
         self.recurrent = isinstance(model, EntityRecurrentPolicy)
+        self.device = next(model.parameters()).device
 
     def act(
         self,
@@ -40,23 +41,23 @@ class PolicyAgent:
         generator: torch.Generator | None = None,
     ) -> AgentStep:
         observation = normalize_state(raw_state)
-        entities = encode_entity_batch([observation], self.vocab)
-        candidate_features = encode_candidates(candidates).unsqueeze(0)
-        slots = torch.tensor([candidate_entity_slots(observation, candidates)], dtype=torch.long)
+        entities = {k: v.to(self.device) for k, v in encode_entity_batch([observation], self.vocab).items()}
+        candidate_features = encode_candidates(candidates).unsqueeze(0).to(self.device)
+        slots = torch.tensor([candidate_entity_slots(observation, candidates)], dtype=torch.long).to(self.device)
         with torch.no_grad():
             if self.recurrent:
                 hidden_tensor = (
-                    torch.tensor([hidden], dtype=torch.float32)
+                    torch.tensor([hidden], dtype=torch.float32).to(self.device)
                     if hidden is not None else None
                 )
                 logits, value, new_hidden = self.model(
-                    entities_global(observation), entities, candidate_features,
+                    entities_global(observation).to(self.device), entities, candidate_features,
                     candidate_slots=slots, hidden=hidden_tensor,
                 )
-                next_hidden: tuple[float, ...] | None = tuple(new_hidden[0].tolist())
+                next_hidden: tuple[float, ...] | None = tuple(new_hidden[0].cpu().tolist())
             else:
                 logits, value = self.model(
-                    entities_global(observation), entities, candidate_features,
+                    entities_global(observation).to(self.device), entities, candidate_features,
                     candidate_slots=slots,
                 )
                 next_hidden = None
