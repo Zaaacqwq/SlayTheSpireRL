@@ -83,3 +83,24 @@ def test_encoded_batch_drives_the_policy():
     logits, value = model(batch["global"], batch["candidates"], batch["mask"])
     assert logits.shape == (1, 2) and value.shape == (1,)
     assert torch.isfinite(logits).all()
+
+
+def test_map_candidates_are_distinguishable():
+    from sts2rl.features import encode_candidate
+    from sts2rl.protocol import ActionCandidate
+    a = encode_candidate(ActionCandidate("select_map_node", {"col": 0, "row": 1}))
+    b = encode_candidate(ActionCandidate("select_map_node", {"col": 2, "row": 1}))
+    assert a != b
+
+
+def test_potion_and_relic_candidates_are_distinguishable():
+    from sts2rl.features import encode_candidate
+    from sts2rl.protocol import ActionCandidate
+    p0 = encode_candidate(ActionCandidate("use_potion", {"potion_index": 0}))
+    p1 = encode_candidate(ActionCandidate("use_potion", {"potion_index": 1}))
+    assert p0 != p1
+
+
+def test_map_choice_entities_embed_room_type():
+    from sts2rl.entities import entity_key
+    assert entity_key({"col": 0, "row": 1, "type": "Rest", "entity_type": "choice", "id": "UNK"}) == "Rest"

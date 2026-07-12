@@ -47,9 +47,32 @@ def main() -> int:
         # ModelDb.AllPowers reflects over mod types, which STS2 only finishes
         # loading during the first RunState creation — warm up with one reset.
         engine.reset(RunConfig("Ironclad", "m2-vocab-warmup"))
+
+        # Map choices carry only a room `type`; collect the closed set of room
+        # types from real generated maps so routing semantics are embeddable.
+        room_types: set[str] = set()
+        for index in range(5):
+            engine.reset(RunConfig("Ironclad", f"m2-vocab-map-{index}"))
+            full_map = engine._request({"cmd": "get_map"})
+            stack = [full_map]
+            while stack:
+                node = stack.pop()
+                if isinstance(node, dict):
+                    value = node.get("type")
+                    if isinstance(value, str) and value not in {"map", "full_map"}:
+                        room_types.add(value)
+                    stack.extend(node.values())
+                elif isinstance(node, list):
+                    stack.extend(node)
+
         entries: dict[str, dict[str, int]] = {kind: {} for kind in ENTITY_KINDS}
         next_index = 1
         for kind in ENTITY_KINDS:
+            if kind == "choice":
+                for room_type in sorted(room_types):
+                    entries[kind][room_type] = next_index
+                    next_index += 1
+                continue
             if kind not in CATALOGS:
                 continue
             catalog, prefix = CATALOGS[kind]

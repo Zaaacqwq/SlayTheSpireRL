@@ -18,8 +18,9 @@ ACTION_TYPES: tuple[str, ...] = (
 )
 ACTION_INDEX: Mapping[str, int] = {name: index for index, name in enumerate(ACTION_TYPES)}
 
-# one-hot(action) + card_index + target_index + option_index + argument arity
-CANDIDATE_FEATURE_DIM = len(ACTION_TYPES) + 4
+# one-hot(action) + card_index + target_index + option/bundle/node/potion/relic
+# index + argument arity + map col + map row
+CANDIDATE_FEATURE_DIM = len(ACTION_TYPES) + 6
 
 _INDEX_SCALE = 10.0
 
@@ -44,8 +45,12 @@ def encode_candidate(candidate: ActionCandidate) -> tuple[float, ...]:
         *one_hot,
         _slot(args, "card_index", "indices"),
         _slot(args, "target_index"),
-        _slot(args, "option_index", "bundle_index", "node_index"),
+        _slot(args, "option_index", "bundle_index", "node_index", "potion_index", "relic_index"),
         float(len(args)),
+        # Map candidates carry only col/row; without these two slots every
+        # select_map_node candidate encoded identically and routing was blind.
+        _slot(args, "col"),
+        _slot(args, "row"),
     )
 
 

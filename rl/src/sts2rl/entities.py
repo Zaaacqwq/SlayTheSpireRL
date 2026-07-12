@@ -26,8 +26,8 @@ _PHASE_INDEX: Mapping[str, int] = {phase: index for index, phase in enumerate(PH
 UNK_INDEX = 0
 
 # hp, max_hp, block, cost, stat_damage, stat_block, upgraded, can_play,
-# intends_attack, intent_damage, index
-ENTITY_NUMERIC_DIM = 11
+# intends_attack, intent_damage, index, col, row
+ENTITY_NUMERIC_DIM = 13
 _HP_SCALE = 100.0
 _SMALL_SCALE = 10.0
 
@@ -37,8 +37,13 @@ def phase_id(phase: str) -> int:
 
 
 def entity_key(entity: Mapping[str, Any]) -> str:
-    """Stable vocabulary key. Cards expose ``id``; enemies/relics only names."""
-    for name in ("id", "name", "text", "label"):
+    """Stable vocabulary key.
+
+    Cards/enemies/relics/potions/powers expose a prefixed ``id``; map choices
+    only carry a room ``type`` (Monster/Elite/Rest/...) which is exactly the
+    semantic worth embedding for routing.
+    """
+    for name in ("id", "name", "text", "label", "type"):
         value = entity.get(name)
         if isinstance(value, str) and value and value != "UNK":
             return value
@@ -70,6 +75,8 @@ def _entity_numeric(entity: Mapping[str, Any]) -> tuple[float, ...]:
         1.0 if entity.get("intends_attack") else 0.0,
         intent_damage / _HP_SCALE,
         number(entity.get("index")) / _SMALL_SCALE,
+        number(entity.get("col")) / _SMALL_SCALE,
+        number(entity.get("row")) / _SMALL_SCALE,
     )
 
 

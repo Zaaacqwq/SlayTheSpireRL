@@ -4,6 +4,7 @@ import torch
 from torch import nn, Tensor
 
 from .entities import ENTITY_KINDS, ENTITY_NUMERIC_DIM, PHASES
+from .features import CANDIDATE_FEATURE_DIM
 from .observation import GLOBAL_FEATURE_DIM
 
 
@@ -45,7 +46,7 @@ class EntityTransformerPolicy(nn.Module):
     excluded via attention key padding; padded candidates score dtype-min.
     """
 
-    def __init__(self, vocab_size: int, *, global_dim: int = GLOBAL_FEATURE_DIM, candidate_dim: int = 16,
+    def __init__(self, vocab_size: int, *, global_dim: int = GLOBAL_FEATURE_DIM, candidate_dim: int = CANDIDATE_FEATURE_DIM,
                  hidden: int = 128, heads: int = 4, layers: int = 2):
         super().__init__()
         self.type_embed = nn.Embedding(len(ENTITY_KINDS) + 1, hidden)
@@ -95,7 +96,7 @@ class EntityRecurrentPolicy(EntityTransformerPolicy):
     step's context and the GRU cell only.
     """
 
-    def __init__(self, vocab_size: int, *, global_dim: int = GLOBAL_FEATURE_DIM, candidate_dim: int = 16,
+    def __init__(self, vocab_size: int, *, global_dim: int = GLOBAL_FEATURE_DIM, candidate_dim: int = CANDIDATE_FEATURE_DIM,
                  hidden: int = 128, heads: int = 4, layers: int = 2):
         super().__init__(vocab_size, global_dim=global_dim, candidate_dim=candidate_dim,
                          hidden=hidden, heads=heads, layers=layers)
