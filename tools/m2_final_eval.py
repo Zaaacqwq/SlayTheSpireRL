@@ -132,15 +132,23 @@ def main() -> int:
     parser.add_argument("--heads", type=int, default=4)
     parser.add_argument("--output", type=Path, default=REPO_ROOT / "rl" / "runs" / "m2_final_eval.json")
     parser.add_argument("--skip-heuristic", action="store_true")
+    parser.add_argument("--dev-seeds", action="store_true",
+                        help="harness validation on development seeds; NEVER a real acceptance run")
     args = parser.parse_args()
 
     if not os.environ.get("STS2_GAME_DIR"):
         raise SystemExit("STS2_GAME_DIR required")
     split = json.loads(SPLIT_PATH.read_text(encoding="utf-8"))
-    seeds = list(split["test_seeds"])[: args.seeds]
+    pool = "development_seeds" if args.dev_seeds else "test_seeds"
+    seeds = list(split[pool])[: args.seeds]
     vocab = EntityVocab.load(VOCAB_PATH)
 
-    report: dict = {"test_seed_hash": split["test_seed_hash"], "seeds": len(seeds), "checkpoints": []}
+    report: dict = {
+        "seed_pool": pool,
+        "seed_pool_hash": split["development_seed_hash" if args.dev_seeds else "test_seed_hash"],
+        "seeds": len(seeds),
+        "checkpoints": [],
+    }
     win_lists: list[list[int]] = []
     lock = threading.Lock()
     for path in args.checkpoints:
