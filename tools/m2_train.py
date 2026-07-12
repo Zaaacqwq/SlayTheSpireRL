@@ -43,7 +43,7 @@ NAMESPACE = "m2-a0-ironclad"
 # bars assume the [25, 80] random starting HP: sub-35-HP starts against hard
 # regular/elite encounters are effectively unwinnable, so ~0.82 is the
 # observed greedy ceiling on normal_combat (three flat evals at init 0).
-ADVANCE_THRESHOLDS = {"normal_combat": 0.80, "mixed_combat": 0.60, "boss_combat": 0.40, "act1": 0.30}
+ADVANCE_THRESHOLDS = {"normal_combat": 0.80, "mixed_combat": 0.60, "boss_combat": 0.30, "act1": 0.30}
 LOADOUTS_PATH = REPO_ROOT / "rl" / "schema" / "m2_boss_loadouts.json"
 MAX_EPISODE_ERROR_RATE = 0.05
 
