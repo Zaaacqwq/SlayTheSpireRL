@@ -1,0 +1,75 @@
+.card-art {
+  width: 100%;
+  height: 62px;
+  object-fit: cover;
+  margin: 7px 0;
+  border: 1px solid #574a5f;
+}
+
+/* Product polish layered over the base game-console theme. */
+body { color: #f2ebf2; }
+.rail nav button, .episode-row, .route-line button { color: #cbc1ce; }
+.rail nav button i, .route-line small, .episode-row small, .stat small { color: #9f94a3; }
+.panel { border-color: #43384a; }
+
+.coverage-notice {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 14px;
+  padding: 12px 15px;
+  color: #d6c7df;
+  background: #251d2b;
+  border: 1px solid #5b4965;
+}
+.coverage-notice svg { width: 20px; color: #e3b15a; }
+.coverage-notice b, .coverage-notice span { display: block; }
+.coverage-notice span { margin-top: 4px; font-size: 11px; color: #aaa0ae; }
+.stat-unavailable { opacity: .72; }
+.stat-unavailable strong { color: #aaa0ae; }
+
+.config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: #362e3b; }
+.config-grid > div { display: flex; justify-content: space-between; gap: 15px; padding: 9px 10px; background: #17131d; }
+.config-grid span { color: #a99fac; font-size: 10px; text-transform: capitalize; }
+.config-grid b { max-width: 55%; overflow: hidden; text-overflow: ellipsis; color: #e5dce7; font-size: 10px; white-space: nowrap; }
+
+.archive-empty { min-height: 330px; display: grid; place-items: center; align-content: center; text-align: center; color: #aaa0ae; }
+.archive-empty svg { width: 32px; color: #e3b15a; }
+.archive-empty h2 { margin: 12px 0 0; font-size: 15px; color: #e7dee8; }
+.archive-empty p { margin: 7px 0 17px; font-size: 11px; }
+.archive-empty button { padding: 9px 14px; color: #f0cb85; background: #2b211d; border: 1px solid #725837; cursor: pointer; }
+
+.episode-head, .episode-row { grid-template-columns: 112px minmax(240px,1fr) 120px 110px 65px 85px 60px; }
+.episode-head { position: sticky; top: 0; z-index: 2; background: #17131d; }
+.episode-list { max-height: calc(100vh - 270px); overflow: auto; }
+.result.unknown { color: #a9a0ad; }
+.pager { position: sticky; bottom: 0; padding-top: 12px; background: linear-gradient(transparent,#17131d 28%); }
+
+.replay-picker > span { padding: 5px 9px; font-size: 10px; border: 1px solid #4b404f; }
+.replay-outcome.win { color: #8acdb4; }
+.replay-outcome.loss { color: #df7d79; }
+.replay-scrubber { width: 100%; height: 3px; margin: 11px 0 4px; padding: 0; accent-color: #e3b15a; }
+.state-delta { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 7px 10px; margin-bottom: 10px; background: #151019; border: 1px solid #342b39; }
+.state-delta span { margin-right: auto; color: #948a99; font-size: 8px; letter-spacing: .12em; }
+.state-delta b { padding: 3px 6px; font-size: 9px; background: #201922; }
+.state-delta .positive { color: #83c9ad; }
+.state-delta .negative { color: #e17d79; }
+.state-details { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.state-details span, .power-list i { padding: 4px 7px; color: #bcb1bf; background: #241d28; border: 1px solid #403447; font-size: 9px; font-style: normal; }
+.power-list { display: flex; flex-wrap: wrap; gap: 4px; }
+
+.game-card.option-card { border-color: #5a4b61; }
+.game-card .option-index { background: #5e4d69; }
+.game-card p { color: #d2c7d4; font-size: 9px; }
+.card-grid { scrollbar-color: #6d5876 #18131c; scrollbar-width: thin; }
+.card-grid:after { content: "scroll →"; position: sticky; right: 0; align-self: center; padding: 4px; color: #8d8192; background: #17131d; font-size: 8px; }
+
+.deck-summary { display: grid; gap: 5px; margin-bottom: 20px; }
+.deck-summary > div { display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: 7px; padding: 7px; background: #211a26; border: 1px solid #3c3142; }
+.deck-summary span { display: grid; place-items: center; width: 20px; height: 20px; color: #fff; background: #587898; border-radius: 50%; font-size: 9px; }
+.deck-summary b { font: 600 9px Cinzel,serif; }
+.deck-summary em { color: #e3b15a; font-size: 10px; font-style: normal; }
+
+@media (max-width: 1250px) {
+  .episode-head, .episode-row { grid-template-columns: 105px minmax(220px,1fr) 110px 90px 55px 70px 50px; }
+}

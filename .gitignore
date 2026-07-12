@@ -24,3 +24,9 @@ rl/trajectories/
 # OS
 .DS_Store
 Thumbs.db
+
+# Dashboard build artifacts
+dashboard/node_modules/
+dashboard/dist/
+dashboard/*.tsbuildinfo
+.playwright-cli/
