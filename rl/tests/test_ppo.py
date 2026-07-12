@@ -134,3 +134,23 @@ def test_combat_starting_hp_is_deterministic_and_bounded():
     config = episode_config(stage, "seed-3")
     assert config.hp == sample_starting_hp(stage, "seed-3")
     assert config.max_hp == 80
+
+
+def test_boss_bridge_stage_uses_harvested_loadouts():
+    from sts2rl.curriculum import Loadout, sample_loadout
+    loadouts = (
+        Loadout(40, 80, ("STRIKE_IRONCLAD",) * 6, ("BURNING_BLOOD",), ()),
+        Loadout(55, 80, ("BASH",) * 5, (), ("BLOCK_POTION",)),
+    )
+    stages = ironclad_stages(CATALOG, loadouts)
+    names = [s.name for s in stages]
+    assert names == ["normal_combat", "mixed_combat", "boss_combat", "act1", "full_a0"]
+    bridge = stages[2]
+    assert set(bridge.encounters) == {"E1", "B1"}
+    assert sample_loadout(bridge, "seed-1") == sample_loadout(bridge, "seed-1")
+    config = episode_config(bridge, "seed-1")
+    chosen = sample_loadout(bridge, "seed-1")
+    assert config.deck == chosen.deck and config.hp == chosen.hp
+    # without loadouts the ladder is unchanged
+    assert [s.name for s in ironclad_stages(CATALOG)] == [
+        "normal_combat", "mixed_combat", "act1", "full_a0"]

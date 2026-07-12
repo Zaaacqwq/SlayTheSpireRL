@@ -19,12 +19,24 @@ IRONCLAD_STARTING_DECK: tuple[str, ...] = (
 
 
 @dataclass(frozen=True)
+class Loadout:
+    """A mid-run player snapshot used to make bridge combats realistic."""
+
+    hp: int
+    max_hp: int
+    deck: tuple[str, ...]
+    relics: tuple[str, ...]
+    potions: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class CurriculumStage:
     """One rung of the ladder. ``encounters`` empty means full-run episodes."""
 
     name: str
     encounters: tuple[str, ...] = ()
     max_act: int | None = None  # full-run mode: stop after finishing this act
+    loadouts: tuple[Loadout, ...] = ()  # bridge combats: harvested mid-run snapshots
 
     @property
     def is_combat(self) -> bool:
@@ -55,9 +67,21 @@ def sample_starting_hp(stage: CurriculumStage, seed: str) -> int:
     return low + int.from_bytes(digest[:8], "big") % (high - low + 1)
 
 
+def sample_loadout(stage: CurriculumStage, seed: str) -> Loadout:
+    digest = hashlib.sha256(f"m2-curriculum-loadout:{stage.name}:{seed}".encode()).digest()
+    return stage.loadouts[int.from_bytes(digest[:8], "big") % len(stage.loadouts)]
+
+
 def episode_config(
     stage: CurriculumStage, seed: str, *, character: str = "Ironclad", ascension: int = 0
 ) -> CombatConfig | RunConfig:
+    if stage.is_combat and stage.loadouts:
+        loadout = sample_loadout(stage, seed)
+        return CombatConfig(
+            character, seed, sample_encounter(stage, seed), ascension=ascension,
+            deck=loadout.deck, relics=loadout.relics, potions=loadout.potions,
+            hp=loadout.hp, max_hp=loadout.max_hp,
+        )
     if stage.is_combat:
         return CombatConfig(
             character, seed, sample_encounter(stage, seed), ascension=ascension,
@@ -67,10 +91,13 @@ def episode_config(
     return RunConfig(character, seed, ascension)
 
 
-def ironclad_stages(encounter_catalog: Sequence[dict]) -> tuple[CurriculumStage, ...]:
-    """Build the four M2 stages from the engine's ``list_models`` encounter rows.
+def ironclad_stages(
+    encounter_catalog: Sequence[dict], boss_loadouts: Sequence[Loadout] = (),
+) -> tuple[CurriculumStage, ...]:
+    """Build the M2 stages from the engine's ``list_models`` encounter rows.
 
-    normal combat -> mixed combat (regulars + elites) -> Act 1 runs -> full A0.
+    normal combat -> mixed combat (regulars + elites) -> [boss bridge with
+    harvested mid-run loadouts, when available] -> Act 1 runs -> full A0.
     """
     def act1(category: str) -> tuple[str, ...]:
         return tuple(sorted(
@@ -78,12 +105,15 @@ def ironclad_stages(encounter_catalog: Sequence[dict]) -> tuple[CurriculumStage,
             if row["act"] == 1 and row["category"] == category
         ))
 
-    weak, regular, elite = act1("weak"), act1("regular"), act1("elite")
-    if not (weak and regular and elite):
+    weak, regular, elite, boss = act1("weak"), act1("regular"), act1("elite"), act1("boss")
+    if not (weak and regular and elite and boss):
         raise ValueError("encounter catalog is missing act 1 categories")
-    return (
+    stages = [
         CurriculumStage("normal_combat", weak + regular),
         CurriculumStage("mixed_combat", weak + regular + elite),
-        CurriculumStage("act1", max_act=1),
-        CurriculumStage("full_a0"),
-    )
+    ]
+    if boss_loadouts:
+        stages.append(CurriculumStage("boss_combat", elite + boss, loadouts=tuple(boss_loadouts)))
+    stages.append(CurriculumStage("act1", max_act=1))
+    stages.append(CurriculumStage("full_a0"))
+    return tuple(stages)

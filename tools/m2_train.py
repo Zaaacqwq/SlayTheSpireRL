@@ -24,7 +24,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "rl" / "src"))
 from sts2rl.agent import PolicyAgent
 from sts2rl.checkpoint import load_checkpoint, save_checkpoint
-from sts2rl.curriculum import CurriculumStage, ironclad_stages
+from sts2rl.curriculum import CurriculumStage, Loadout, ironclad_stages
 from sts2rl.engine import EngineClient
 from sts2rl.entities import EntityVocab
 from sts2rl.features import CANDIDATE_FEATURE_DIM
@@ -43,7 +43,8 @@ NAMESPACE = "m2-a0-ironclad"
 # bars assume the [25, 80] random starting HP: sub-35-HP starts against hard
 # regular/elite encounters are effectively unwinnable, so ~0.82 is the
 # observed greedy ceiling on normal_combat (three flat evals at init 0).
-ADVANCE_THRESHOLDS = {"normal_combat": 0.80, "mixed_combat": 0.60, "act1": 0.30}
+ADVANCE_THRESHOLDS = {"normal_combat": 0.80, "mixed_combat": 0.60, "boss_combat": 0.40, "act1": 0.30}
+LOADOUTS_PATH = REPO_ROOT / "rl" / "schema" / "m2_boss_loadouts.json"
 MAX_EPISODE_ERROR_RATE = 0.05
 
 
@@ -166,7 +167,15 @@ def main() -> int:
 
     with make_client() as probe:
         catalog = probe.list_models("encounter")
-    stages = ironclad_stages(catalog)
+    boss_loadouts: tuple[Loadout, ...] = ()
+    if LOADOUTS_PATH.exists():
+        harvested = json.loads(LOADOUTS_PATH.read_text(encoding="utf-8"))
+        boss_loadouts = tuple(
+            Loadout(row["hp"], row["max_hp"], tuple(row["deck"]),
+                    tuple(row["relics"]), tuple(row["potions"]))
+            for row in harvested["loadouts"]
+        )
+    stages = ironclad_stages(catalog, boss_loadouts)
     clients = [make_client() for _ in range(args.workers)]
     stage_index = 0
     iteration_start = 0

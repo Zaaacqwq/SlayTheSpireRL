@@ -1,0 +1,2005 @@
+{
+  "version": 1,
+  "checkpoint": "rl/runs/m2_v4_init0/ckpt_00089.pt",
+  "min_floor": 8,
+  "loadouts": [
+    {
+      "hp": 67,
+      "max_hp": 87,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "FLAME_BARRIER",
+        "HAVOC",
+        "RAMPAGE",
+        "IRON_WAVE",
+        "INFERNAL_BLADE",
+        "PERFECTED_STRIKE",
+        "TWIN_STRIKE"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "PHIAL_HOLSTER",
+        "SWORD_OF_STONE",
+        "BAG_OF_PREPARATION",
+        "RIPPLE_BASIN"
+      ],
+      "potions": [
+        "WEAK_POTION",
+        "VULNERABLE_POTION",
+        "STABLE_SERUM",
+        "SKILL_POTION"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 31,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "TEAR_ASUNDER",
+        "RAMPAGE",
+        "EVIL_EYE",
+        "TORIC_TOUGHNESS",
+        "SPOILS_MAP",
+        "TWIN_STRIKE",
+        "THUNDERCLAP"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "ARCANE_SCROLL",
+        "SWORD_OF_STONE",
+        "SPARKLING_ROUGE",
+        "UNSETTLING_LAMP"
+      ],
+      "potions": [
+        "FLEX_POTION"
+      ],
+      "floor": 11
+    },
+    {
+      "hp": 27,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "EXPECT_A_FIGHT",
+        "BLOODLETTING",
+        "ARMAMENTS",
+        "WHIRLWIND",
+        "CINDER",
+        "CINDER"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "NEOWS_TALISMAN",
+        "PEN_NIB"
+      ],
+      "potions": [
+        "BOTTLED_POTENTIAL",
+        "STABLE_SERUM",
+        "LIQUID_MEMORIES"
+      ],
+      "floor": 11
+    },
+    {
+      "hp": 80,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "SWORD_BOOMERANG",
+        "THUNDERCLAP",
+        "BREAKTHROUGH",
+        "MOLTEN_FIST",
+        "BREAKTHROUGH",
+        "UPPERCUT",
+        "MOLTEN_FIST",
+        "PERFECTED_STRIKE",
+        "DOMINATE"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "LARGE_CAPSULE",
+        "BRONZE_SCALES",
+        "ORICHALCUM",
+        "REGAL_PILLOW",
+        "STURDY_CLAMP",
+        "FESTIVE_POPPER"
+      ],
+      "potions": [
+        "ASHWATER",
+        "POWER_POTION",
+        "HEART_OF_IRON"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 63,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "BREAKTHROUGH",
+        "HAVOC",
+        "CINDER",
+        "PERFECTED_STRIKE",
+        "SHRUG_IT_OFF",
+        "AGGRESSION",
+        "WHIRLWIND",
+        "BREAKTHROUGH",
+        "INFERNO"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "SILKEN_TRESS",
+        "REPTILE_TRINKET"
+      ],
+      "potions": [
+        "FLEX_POTION",
+        "FLEX_POTION"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 91,
+      "max_hp": 91,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "THUNDERCLAP",
+        "RAMPAGE",
+        "SHRUG_IT_OFF",
+        "IRON_WAVE",
+        "BREAKTHROUGH",
+        "POMMEL_STRIKE",
+        "TWIN_STRIKE",
+        "PRIMAL_FORCE"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "NUTRITIOUS_OYSTER",
+        "UNSETTLING_LAMP",
+        "ETERNAL_FEATHER"
+      ],
+      "potions": [
+        "ENERGY_POTION",
+        "DISTILLED_CHAOS"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 77,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "SWORD_BOOMERANG",
+        "MOLTEN_FIST",
+        "BREAKTHROUGH",
+        "STONE_ARMOR",
+        "PERFECTED_STRIKE"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "POMANDER",
+        "RAINBOW_RING",
+        "ODDLY_SMOOTH_STONE",
+        "REGAL_PILLOW"
+      ],
+      "potions": [
+        "REGEN_POTION",
+        "STRENGTH_POTION"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 1,
+      "max_hp": 1,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "PERFECTED_STRIKE",
+        "BREAKTHROUGH",
+        "UNRELENTING",
+        "MOLTEN_FIST",
+        "DISMANTLE",
+        "WHIRLWIND",
+        "UNRELENTING"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "NUTRITIOUS_OYSTER",
+        "STONE_CRACKER"
+      ],
+      "potions": [
+        "GIGANTIFICATION_POTION",
+        "FLEX_POTION"
+      ],
+      "floor": 10
+    },
+    {
+      "hp": 80,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "RUPTURE",
+        "CRUELTY",
+        "INFERNO",
+        "BREAKTHROUGH",
+        "ARMAMENTS",
+        "BLUDGEON",
+        "HELLRAISER",
+        "HAVOC",
+        "TWIN_STRIKE"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "LARGE_CAPSULE",
+        "BOOK_OF_FIVE_RINGS",
+        "BAG_OF_MARBLES",
+        "ANCHOR",
+        "SWORD_OF_STONE",
+        "BONE_TEA"
+      ],
+      "potions": [
+        "FIRE_POTION",
+        "EXPLOSIVE_AMPOULE",
+        "FLEX_POTION"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 87,
+      "max_hp": 87,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "HAVOC",
+        "RUPTURE",
+        "FLAME_BARRIER",
+        "SWORD_BOOMERANG",
+        "MOLTEN_FIST"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "SILKEN_TRESS",
+        "FESTIVE_POPPER"
+      ],
+      "potions": [
+        "DISTILLED_CHAOS",
+        "DEXTERITY_POTION",
+        "FRUIT_JUICE"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 1,
+      "max_hp": 1,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "INFERNO",
+        "RAGE",
+        "FLAME_BARRIER",
+        "THUNDERCLAP",
+        "HEADBUTT",
+        "BREAKTHROUGH"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "LARGE_CAPSULE",
+        "CHARONS_ASHES",
+        "TINY_MAILBOX",
+        "SWORD_OF_STONE",
+        "MINIATURE_CANNON"
+      ],
+      "potions": [
+        "FLEX_POTION",
+        "ENERGY_POTION",
+        "LUCKY_TONIC"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 80,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "ARMAMENTS",
+        "SWORD_BOOMERANG",
+        "SWORD_BOOMERANG",
+        "SPOILS_MAP",
+        "MOLTEN_FIST",
+        "ASHEN_STRIKE",
+        "SHRUG_IT_OFF",
+        "PERFECTED_STRIKE",
+        "RAGE"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "POMANDER",
+        "CANDELABRA"
+      ],
+      "potions": [
+        "VULNERABLE_POTION",
+        "CURE_ALL",
+        "EXPLOSIVE_AMPOULE"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 25,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "BREAKTHROUGH",
+        "STONE_ARMOR",
+        "CINDER",
+        "STONE_ARMOR"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "SILKEN_TRESS"
+      ],
+      "potions": [
+        "FIRE_POTION",
+        "SKILL_POTION",
+        "FLEX_POTION"
+      ],
+      "floor": 8
+    },
+    {
+      "hp": 1,
+      "max_hp": 1,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "HOWL_FROM_BEYOND",
+        "SWORD_BOOMERANG",
+        "SWORD_BOOMERANG",
+        "PERFECTED_STRIKE",
+        "HAVOC",
+        "TREMBLE",
+        "FIGHT_ME",
+        "SECOND_WIND",
+        "MOLTEN_FIST",
+        "ARMAMENTS"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "NEOWS_TALISMAN",
+        "MERCURY_HOURGLASS",
+        "PENDULUM"
+      ],
+      "potions": [
+        "REGEN_POTION",
+        "ENERGY_POTION",
+        "DEXTERITY_POTION"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 61,
+      "max_hp": 87,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "HAVOC",
+        "MOLTEN_FIST",
+        "SPITE",
+        "MOLTEN_FIST",
+        "BREAKTHROUGH",
+        "CINDER",
+        "HEADBUTT",
+        "MOLTEN_FIST",
+        "HEADBUTT",
+        "PILLAGE"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "SCROLL_BOXES",
+        "SWORD_OF_STONE",
+        "CANDELABRA",
+        "SELF_FORMING_CLAY",
+        "KUSARIGAMA"
+      ],
+      "potions": [
+        "FLEX_POTION",
+        "HEART_OF_IRON",
+        "SWIFT_POTION"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 14,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "STOKE",
+        "PERFECTED_STRIKE",
+        "SPOILS_MAP",
+        "THUNDERCLAP",
+        "IRON_WAVE",
+        "RAMPAGE"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "ARCANE_SCROLL",
+        "HAPPY_FLOWER",
+        "LASTING_CANDY",
+        "LUCKY_FYSH"
+      ],
+      "potions": [
+        "ENERGY_POTION",
+        "FYSH_OIL",
+        "RADIANT_TINCTURE"
+      ],
+      "floor": 11
+    },
+    {
+      "hp": 47,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "SHRUG_IT_OFF",
+        "BLOODLETTING",
+        "INFERNAL_BLADE",
+        "INFLAME",
+        "PERFECTED_STRIKE",
+        "RAMPAGE",
+        "CINDER",
+        "SWORD_BOOMERANG"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "SCROLL_BOXES",
+        "LANTERN"
+      ],
+      "potions": [
+        "ENERGY_POTION",
+        "POTION_OF_BINDING",
+        "DUPLICATOR"
+      ],
+      "floor": 10
+    },
+    {
+      "hp": 70,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "MOLTEN_FIST",
+        "TREMBLE",
+        "BREAKTHROUGH",
+        "HEADBUTT",
+        "CINDER",
+        "SECOND_WIND"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "SILKEN_TRESS",
+        "STRIKE_DUMMY",
+        "CAPTAINS_WHEEL",
+        "PERMAFROST",
+        "BOOK_OF_FIVE_RINGS",
+        "MEAL_TICKET"
+      ],
+      "potions": [
+        "STRENGTH_POTION",
+        "DROPLET_OF_PRECOGNITION",
+        "BEETLE_JUICE"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 48,
+      "max_hp": 94,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "UNRELENTING",
+        "IRON_WAVE",
+        "STOMP",
+        "CINDER",
+        "ARMAMENTS",
+        "SWORD_BOOMERANG",
+        "SPITE",
+        "CINDER",
+        "HOWL_FROM_BEYOND"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "FISHING_ROD",
+        "MANGO",
+        "HAPPY_FLOWER"
+      ],
+      "potions": [
+        "FYSH_OIL",
+        "CLARITY",
+        "BLOCK_POTION"
+      ],
+      "floor": 13
+    },
+    {
+      "hp": 66,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "MOLTEN_FIST",
+        "SWORD_BOOMERANG",
+        "CINDER",
+        "MOLTEN_FIST",
+        "SHRUG_IT_OFF",
+        "PERFECTED_STRIKE",
+        "ARMAMENTS",
+        "DRUM_OF_BATTLE",
+        "SHRUG_IT_OFF"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "LARGE_CAPSULE",
+        "BRONZE_SCALES",
+        "CLOAK_CLASP",
+        "TINY_MAILBOX",
+        "JOSS_PAPER"
+      ],
+      "potions": [
+        "ENERGY_POTION",
+        "FIRE_POTION",
+        "EXPLOSIVE_AMPOULE"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 80,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "GUNK_UP",
+        "UPROAR",
+        "HEADBUTT",
+        "PERFECTED_STRIKE",
+        "ARMAMENTS",
+        "BLUDGEON",
+        "BLUDGEON",
+        "DRUM_OF_BATTLE"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "KALEIDOSCOPE",
+        "FESTIVE_POPPER"
+      ],
+      "potions": [
+        "BLESSING_OF_THE_FORGE",
+        "EXPLOSIVE_AMPOULE",
+        "SPEED_POTION"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 62,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BREAKTHROUGH",
+        "ARMAMENTS",
+        "INFERNAL_BLADE",
+        "DOMINATE",
+        "TORIC_TOUGHNESS",
+        "INFERNAL_BLADE",
+        "POMMEL_STRIKE",
+        "CINDER",
+        "BREAKTHROUGH"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "SILVER_CRUCIBLE",
+        "GREMLIN_HORN",
+        "MINIATURE_CANNON"
+      ],
+      "potions": [
+        "ENERGY_POTION",
+        "FLEX_POTION",
+        "POWER_POTION"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 80,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "BREAKTHROUGH",
+        "SWORD_BOOMERANG",
+        "HEADBUTT",
+        "ARMAMENTS"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "SILVER_CRUCIBLE",
+        "BAG_OF_PREPARATION"
+      ],
+      "potions": [
+        "FIRE_POTION"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 85,
+      "max_hp": 87,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "STRIKE_IRONCLAD",
+        "IRON_WAVE",
+        "SWORD_BOOMERANG",
+        "INFERNAL_BLADE",
+        "CINDER",
+        "TORIC_TOUGHNESS",
+        "POMMEL_STRIKE",
+        "INFERNO",
+        "ASHEN_STRIKE",
+        "HAVOC",
+        "ONE_TWO_PUNCH"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "LARGE_CAPSULE",
+        "GREMLIN_HORN",
+        "TINY_MAILBOX",
+        "RIPPLE_BASIN"
+      ],
+      "potions": [
+        "STRENGTH_POTION",
+        "ASHWATER",
+        "SKILL_POTION"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 79,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "WRITHE",
+        "RAGE",
+        "FEED",
+        "ARMAMENTS",
+        "CINDER",
+        "BLUDGEON",
+        "THUNDERCLAP",
+        "FLAME_BARRIER",
+        "SWORD_BOOMERANG",
+        "SPOILS_MAP"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "NEOWS_BONES",
+        "PRECISE_SCISSORS",
+        "LARGE_CAPSULE",
+        "CENTENNIAL_PUZZLE",
+        "ORICHALCUM",
+        "ART_OF_WAR",
+        "RED_SKULL"
+      ],
+      "potions": [
+        "SKILL_POTION",
+        "CLARITY",
+        "LUCKY_TONIC"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 56,
+      "max_hp": 83,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "MOLTEN_FIST",
+        "FEEL_NO_PAIN",
+        "FEED",
+        "MOLTEN_FIST",
+        "STONE_ARMOR",
+        "SETUP_STRIKE",
+        "INFLAME",
+        "BODY_SLAM",
+        "SPOILS_MAP",
+        "PERFECTED_STRIKE",
+        "CINDER"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "LARGE_CAPSULE",
+        "ODDLY_SMOOTH_STONE",
+        "FESTIVE_POPPER",
+        "PERMAFROST"
+      ],
+      "potions": [
+        "RADIANT_TINCTURE",
+        "CLARITY",
+        "STRENGTH_POTION"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 9,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "INFERNAL_BLADE",
+        "INFERNO",
+        "TORIC_TOUGHNESS",
+        "CINDER",
+        "BLOOD_WALL"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "SILKEN_TRESS",
+        "BAG_OF_MARBLES"
+      ],
+      "potions": [
+        "EXPLOSIVE_AMPOULE",
+        "STRENGTH_POTION"
+      ],
+      "floor": 8
+    },
+    {
+      "hp": 37,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "BRAND",
+        "SWORD_BOOMERANG",
+        "CINDER",
+        "THUNDERCLAP"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "NEOWS_TALISMAN"
+      ],
+      "potions": [],
+      "floor": 8
+    },
+    {
+      "hp": 87,
+      "max_hp": 87,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "SWORD_BOOMERANG",
+        "PERFECTED_STRIKE",
+        "UNRELENTING",
+        "CINDER",
+        "MOLTEN_FIST",
+        "RAMPAGE",
+        "CINDER",
+        "THUNDERCLAP",
+        "AGGRESSION"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "FISHING_ROD",
+        "SWORD_OF_STONE",
+        "ANCHOR"
+      ],
+      "potions": [
+        "SKILL_POTION",
+        "ASHWATER",
+        "LUCKY_TONIC"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 34,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "CINDER",
+        "SPOILS_MAP",
+        "FLAME_BARRIER",
+        "RAMPAGE",
+        "DRUM_OF_BATTLE",
+        "TWIN_STRIKE",
+        "TORIC_TOUGHNESS",
+        "CINDER",
+        "CINDER"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "SILVER_CRUCIBLE",
+        "BLOOD_VIAL"
+      ],
+      "potions": [
+        "CLARITY",
+        "EXPLOSIVE_AMPOULE",
+        "STRENGTH_POTION"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 27,
+      "max_hp": 72,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "SWORD_BOOMERANG",
+        "BLOOD_WALL",
+        "MOLTEN_FIST",
+        "SETUP_STRIKE",
+        "MOLTEN_FIST",
+        "SHRUG_IT_OFF"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "SILKEN_TRESS",
+        "CAPTAINS_WHEEL",
+        "MEAL_TICKET"
+      ],
+      "potions": [
+        "FYSH_OIL",
+        "FIRE_POTION"
+      ],
+      "floor": 10
+    },
+    {
+      "hp": 21,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "IRON_WAVE",
+        "DECAY",
+        "POMMEL_STRIKE",
+        "BREAKTHROUGH",
+        "RUPTURE",
+        "PACTS_END",
+        "BREAKTHROUGH",
+        "ASHEN_STRIKE",
+        "TEAR_ASUNDER",
+        "SWORD_BOOMERANG"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "NEOWS_BONES",
+        "BOOMING_CONCH",
+        "LOST_COFFER",
+        "BRONZE_SCALES"
+      ],
+      "potions": [
+        "STRENGTH_POTION",
+        "LIQUID_BRONZE",
+        "BLOOD_POTION"
+      ],
+      "floor": 11
+    },
+    {
+      "hp": 24,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "SWORD_BOOMERANG",
+        "JUGGLING",
+        "UPPERCUT",
+        "BREAKTHROUGH",
+        "STOMP"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "LEAD_PAPERWEIGHT",
+        "SWORD_OF_STONE",
+        "POTION_BELT"
+      ],
+      "potions": [
+        "BLESSING_OF_THE_FORGE",
+        "VULNERABLE_POTION"
+      ],
+      "floor": 13
+    },
+    {
+      "hp": 20,
+      "max_hp": 87,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "TREMBLE",
+        "STOMP",
+        "CINDER",
+        "CINDER",
+        "HAVOC",
+        "THUNDERCLAP"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "LARGE_CAPSULE",
+        "PENDULUM",
+        "HAPPY_FLOWER",
+        "RIPPLE_BASIN"
+      ],
+      "potions": [
+        "POTION_OF_BINDING",
+        "BLOCK_POTION",
+        "SWIFT_POTION"
+      ],
+      "floor": 13
+    },
+    {
+      "hp": 80,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "PERFECTED_STRIKE",
+        "CINDER",
+        "BREAKTHROUGH",
+        "BREAKTHROUGH",
+        "STOMP"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "SILKEN_TRESS",
+        "SWORD_OF_STONE",
+        "MEAL_TICKET"
+      ],
+      "potions": [
+        "SPEED_POTION",
+        "RADIANT_TINCTURE",
+        "VULNERABLE_POTION"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 35,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "RAMPAGE",
+        "JUGGLING",
+        "HEADBUTT",
+        "MOLTEN_FIST",
+        "SPORE_MIND",
+        "BREAKTHROUGH",
+        "PERFECTED_STRIKE"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "POMANDER",
+        "BOWLER_HAT",
+        "BONE_TEA"
+      ],
+      "potions": [
+        "HEART_OF_IRON",
+        "BLOCK_POTION",
+        "STRENGTH_POTION"
+      ],
+      "floor": 12
+    },
+    {
+      "hp": 25,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "RAMPAGE",
+        "COLOSSUS",
+        "BREAKTHROUGH",
+        "THUNDERCLAP",
+        "SHRUG_IT_OFF"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "FISHING_ROD",
+        "SWORD_OF_STONE"
+      ],
+      "potions": [
+        "BLOOD_POTION",
+        "ASHWATER"
+      ],
+      "floor": 8
+    },
+    {
+      "hp": 45,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "INJURY",
+        "RAMPAGE",
+        "ASHEN_STRIKE",
+        "POMMEL_STRIKE",
+        "FEED",
+        "TRUE_GRIT",
+        "BREAKTHROUGH"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "NEOWS_BONES",
+        "WINGED_BOOTS",
+        "HEFTY_TABLET",
+        "GIRYA"
+      ],
+      "potions": [
+        "OROBIC_ACID",
+        "STABLE_SERUM"
+      ],
+      "floor": 14
+    },
+    {
+      "hp": 47,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "TWIN_STRIKE",
+        "INFLAME",
+        "PERFECTED_STRIKE",
+        "DOMINATE",
+        "HEADBUTT",
+        "UPPERCUT",
+        "ARMAMENTS",
+        "COLOSSUS",
+        "STOMP"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "SILKEN_TRESS",
+        "WAR_PAINT",
+        "GORGET"
+      ],
+      "potions": [
+        "DEXTERITY_POTION",
+        "ENERGY_POTION",
+        "STRENGTH_POTION"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 27,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "BREAKTHROUGH",
+        "SWORD_BOOMERANG",
+        "PERFECTED_STRIKE",
+        "FIEND_FIRE",
+        "SWORD_BOOMERANG",
+        "BATTLE_TRANCE",
+        "IMPERVIOUS",
+        "FLAME_BARRIER",
+        "RAGE",
+        "THUNDERCLAP"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "NEOWS_TALISMAN",
+        "LASTING_CANDY"
+      ],
+      "potions": [
+        "ENERGY_POTION",
+        "ASHWATER",
+        "FLEX_POTION"
+      ],
+      "floor": 14
+    },
+    {
+      "hp": 33,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "INFERNO",
+        "HEADBUTT",
+        "NOT_YET",
+        "IRON_WAVE",
+        "INFERNO",
+        "ARMAMENTS",
+        "TORIC_TOUGHNESS",
+        "BLUDGEON",
+        "SWORD_BOOMERANG"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "LEAD_PAPERWEIGHT",
+        "WAR_PAINT",
+        "HAPPY_FLOWER"
+      ],
+      "potions": [
+        "SPEED_POTION",
+        "SHACKLING_POTION",
+        "SKILL_POTION"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 80,
+      "max_hp": 87,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "BATTLE_TRANCE",
+        "HEADBUTT",
+        "INFERNAL_BLADE",
+        "IRON_WAVE",
+        "INFERNO",
+        "IRON_WAVE",
+        "POMMEL_STRIKE",
+        "HEADBUTT"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "SILVER_CRUCIBLE",
+        "OLD_COIN"
+      ],
+      "potions": [
+        "STABLE_SERUM",
+        "BOTTLED_POTENTIAL"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 56,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "HEADBUTT",
+        "IRON_WAVE",
+        "HAVOC",
+        "THUNDERCLAP",
+        "MOLTEN_FIST",
+        "POMMEL_STRIKE"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "LARGE_CAPSULE",
+        "BRONZE_SCALES",
+        "RED_SKULL",
+        "VAJRA",
+        "BONE_TEA"
+      ],
+      "potions": [
+        "COLORLESS_POTION",
+        "DROPLET_OF_PRECOGNITION",
+        "GAMBLERS_BREW"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 52,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "UNMOVABLE",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DECAY",
+        "POMMEL_STRIKE",
+        "MOLTEN_FIST",
+        "SPOILS_MAP",
+        "INFLAME",
+        "MOLTEN_FIST",
+        "HELLRAISER",
+        "UNMOVABLE",
+        "SWORD_BOOMERANG",
+        "STAMPEDE"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "NEOWS_BONES",
+        "NEW_LEAF",
+        "LARGE_CAPSULE",
+        "REPTILE_TRINKET",
+        "LUCKY_FYSH",
+        "HORN_CLEAT"
+      ],
+      "potions": [
+        "TOUCH_OF_INSANITY",
+        "OROBIC_ACID",
+        "BLOOD_POTION"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 40,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "NEOWS_FURY",
+        "ARMAMENTS",
+        "MOLTEN_FIST",
+        "THUNDERCLAP",
+        "ARMAMENTS",
+        "THUNDERCLAP",
+        "TREMBLE",
+        "STOMP",
+        "RUPTURE"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "NEOWS_TORMENT",
+        "GREMLIN_HORN"
+      ],
+      "potions": [
+        "SHACKLING_POTION",
+        "BLOOD_POTION"
+      ],
+      "floor": 13
+    },
+    {
+      "hp": 1,
+      "max_hp": 1,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "MOLTEN_FIST",
+        "SPOILS_MAP",
+        "SPITE",
+        "IMPERVIOUS",
+        "DISMANTLE",
+        "CINDER",
+        "BURNING_PACT"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "SILKEN_TRESS",
+        "STRIKE_DUMMY"
+      ],
+      "potions": [
+        "FLEX_POTION",
+        "CURE_ALL"
+      ],
+      "floor": 14
+    },
+    {
+      "hp": 83,
+      "max_hp": 87,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "RAMPAGE",
+        "PERFECTED_STRIKE",
+        "UNRELENTING",
+        "BREAKTHROUGH",
+        "COLOSSUS",
+        "ARMAMENTS",
+        "ARMAMENTS",
+        "BREAKTHROUGH"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "LEAD_PAPERWEIGHT",
+        "SWORD_OF_STONE",
+        "STRAWBERRY"
+      ],
+      "potions": [
+        "GAMBLERS_BREW",
+        "FIRE_POTION",
+        "ENERGY_POTION"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 36,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "HOWL_FROM_BEYOND",
+        "MOLTEN_FIST",
+        "EXPECT_A_FIGHT",
+        "PERFECTED_STRIKE",
+        "MOLTEN_FIST",
+        "HAVOC",
+        "TORIC_TOUGHNESS",
+        "ONE_TWO_PUNCH",
+        "INFLAME",
+        "MOLTEN_FIST"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "FISHING_ROD",
+        "MERCURY_HOURGLASS"
+      ],
+      "potions": [
+        "ENERGY_POTION",
+        "POWER_POTION",
+        "MAZALETHS_GIFT"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 51,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "BARRICADE",
+        "SWORD_BOOMERANG",
+        "IRON_WAVE",
+        "THUNDERCLAP",
+        "BLOOD_WALL",
+        "TEAR_ASUNDER",
+        "ARMAMENTS"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "ARCANE_SCROLL",
+        "VEXING_PUZZLEBOX"
+      ],
+      "potions": [
+        "ENERGY_POTION",
+        "DEXTERITY_POTION",
+        "EXPLOSIVE_AMPOULE"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 87,
+      "max_hp": 87,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BREAKTHROUGH",
+        "TRUE_GRIT",
+        "HEADBUTT",
+        "BLUDGEON",
+        "BODY_SLAM",
+        "FEEL_NO_PAIN",
+        "DOMINATE",
+        "BREAKTHROUGH",
+        "SHRUG_IT_OFF"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "LARGE_CAPSULE",
+        "FESTIVE_POPPER",
+        "AMETHYST_AUBERGINE",
+        "STONE_CRACKER",
+        "SWORD_OF_STONE"
+      ],
+      "potions": [
+        "FLEX_POTION",
+        "FLEX_POTION"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 64,
+      "max_hp": 100,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "HEADBUTT",
+        "MOLTEN_FIST",
+        "HEADBUTT",
+        "TORIC_TOUGHNESS",
+        "RUPTURE",
+        "BLOODLETTING",
+        "ARMAMENTS",
+        "INFLAME"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "STONE_HUMIDIFIER",
+        "OLD_COIN",
+        "BOOK_OF_FIVE_RINGS",
+        "MUMMIFIED_HAND"
+      ],
+      "potions": [
+        "POTION_OF_BINDING",
+        "BEETLE_JUICE",
+        "POWER_POTION"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 44,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "CINDER",
+        "THUNDERCLAP",
+        "MOLTEN_FIST",
+        "PRIMAL_FORCE",
+        "JUGGERNAUT",
+        "CINDER",
+        "SWORD_BOOMERANG",
+        "ARMAMENTS",
+        "BATTLE_TRANCE",
+        "MOLTEN_FIST"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "LARGE_CAPSULE",
+        "LUCKY_FYSH",
+        "LIZARD_TAIL",
+        "FROZEN_EGG",
+        "ORNAMENTAL_FAN",
+        "HORN_CLEAT",
+        "BONE_TEA"
+      ],
+      "potions": [
+        "SKILL_POTION",
+        "SWIFT_POTION",
+        "SWIFT_POTION"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 17,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "SETUP_STRIKE",
+        "ARMAMENTS",
+        "INFERNAL_BLADE",
+        "COLOSSUS",
+        "TORIC_TOUGHNESS",
+        "POMMEL_STRIKE",
+        "SPOILS_MAP",
+        "STONE_ARMOR",
+        "INFERNO",
+        "MOLTEN_FIST"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "SCROLL_BOXES",
+        "ORICHALCUM",
+        "JOSS_PAPER"
+      ],
+      "potions": [
+        "ASHWATER",
+        "BLOCK_POTION",
+        "VULNERABLE_POTION"
+      ],
+      "floor": 13
+    },
+    {
+      "hp": 71,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "DISMANTLE",
+        "SHRUG_IT_OFF",
+        "TWIN_STRIKE",
+        "BREAKTHROUGH",
+        "BLUDGEON",
+        "TEAR_ASUNDER",
+        "TWIN_STRIKE",
+        "CINDER",
+        "SWORD_BOOMERANG"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "FISHING_ROD",
+        "FROZEN_EGG",
+        "REGAL_PILLOW"
+      ],
+      "potions": [
+        "GIGANTIFICATION_POTION",
+        "VULNERABLE_POTION",
+        "RADIANT_TINCTURE"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 80,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "NEOWS_FURY",
+        "RAMPAGE",
+        "UNRELENTING",
+        "DARK_SHACKLES",
+        "ANGER",
+        "CINDER"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "NEOWS_TORMENT",
+        "ORICHALCUM",
+        "BONE_TEA",
+        "PANTOGRAPH"
+      ],
+      "potions": [
+        "BLOCK_POTION",
+        "FYSH_OIL",
+        "FIRE_POTION"
+      ],
+      "floor": 16
+    },
+    {
+      "hp": 64,
+      "max_hp": 80,
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "BASH",
+        "STRIKE_IRONCLAD",
+        "DEFEND_IRONCLAD",
+        "CINDER",
+        "TWIN_STRIKE",
+        "BATTLE_TRANCE",
+        "MOLTEN_FIST",
+        "MOLTEN_FIST",
+        "BATTLE_TRANCE",
+        "THRASH",
+        "HAVOC",
+        "INFERNO"
+      ],
+      "relics": [
+        "BURNING_BLOOD",
+        "LARGE_CAPSULE",
+        "ORNAMENTAL_FAN",
+        "BLOOD_VIAL",
+        "LASTING_CANDY"
+      ],
+      "potions": [
+        "WEAK_POTION",
+        "GAMBLERS_BREW",
+        "BLOCK_POTION"
+      ],
+      "floor": 16
+    }
+  ]
+}
