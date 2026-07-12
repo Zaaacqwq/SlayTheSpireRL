@@ -1,0 +1,242 @@
+"""M2 Ironclad curriculum trainer: recurrent masked PPO on the real engine.
+
+Stages follow the roadmap ladder (normal combat -> mixed combat -> Act 1 ->
+full A0). Training seeds come from the train split of the frozen
+``m2-a0-ironclad`` namespace; development seeds gate stage advancement; the
+1,000 frozen test seeds are never touched here.
+"""
+from __future__ import annotations
+
+import argparse
+from concurrent.futures import ThreadPoolExecutor
+import itertools
+import json
+import os
+from pathlib import Path
+import shutil
+import sys
+import threading
+import time
+
+import torch
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "rl" / "src"))
+from sts2rl.agent import PolicyAgent
+from sts2rl.checkpoint import load_checkpoint, save_checkpoint
+from sts2rl.curriculum import CurriculumStage, ironclad_stages
+from sts2rl.engine import EngineClient
+from sts2rl.entities import EntityVocab
+from sts2rl.features import CANDIDATE_FEATURE_DIM
+from sts2rl.logging import ExperimentLogger
+from sts2rl.model import EntityRecurrentPolicy
+from sts2rl.ppo import PPOConfig, finalize_episode, ppo_update_epoch, run_episode
+from sts2rl.seeds import split_seed
+
+CLI_ROOT = REPO_ROOT / "external" / "sts2-cli"
+DLL = CLI_ROOT / "src" / "Sts2Headless" / "bin" / "Debug" / "net9.0" / "Sts2Headless.dll"
+VOCAB_PATH = REPO_ROOT / "rl" / "schema" / "m2_vocab.json"
+SPLIT_PATH = REPO_ROOT / "rl" / "seeds" / "m2_ironclad_seed_split.json"
+NAMESPACE = "m2-a0-ironclad"
+
+# Development win rates required to advance to the next stage.
+ADVANCE_THRESHOLDS = {"normal_combat": 0.90, "mixed_combat": 0.70, "act1": 0.30}
+MAX_EPISODE_ERROR_RATE = 0.05
+
+
+def make_client() -> EngineClient:
+    dotnet = os.environ.get("DOTNET_HOST_PATH") or shutil.which("dotnet") or "dotnet"
+    return EngineClient(
+        [dotnet, str(DLL)], cwd=CLI_ROOT,
+        timeout=float(os.environ.get("STS2_TRAIN_TIMEOUT", "10")),
+        env={"STS2_GAME_DIR": os.environ["STS2_GAME_DIR"]},
+    )
+
+
+def train_seed_stream(offset: int = 0):
+    for index in itertools.count(offset):
+        seed = f"{NAMESPACE}-train-{index}"
+        if split_seed(seed) == "train":
+            yield seed
+
+
+def collect_iteration(
+    clients: list[EngineClient], stage: CurriculumStage, seeds: list[str],
+    agent: PolicyAgent, config: PPOConfig,
+):
+    lock = threading.Lock()
+    buckets = [seeds[i::len(clients)] for i in range(len(clients))]
+
+    def worker(client: EngineClient, bucket: list[str]):
+        records = []
+        for seed in bucket:
+            record = run_episode(client, stage, seed, agent, config, inference_lock=lock)
+            finalize_episode(record, config)
+            records.append(record)
+        return records
+
+    records = []
+    with ThreadPoolExecutor(max_workers=len(clients)) as pool:
+        futures = [pool.submit(worker, c, b) for c, b in zip(clients, buckets) if b]
+        for future in futures:
+            records.extend(future.result())
+    return records
+
+
+def evaluate_stage(
+    clients: list[EngineClient], stage: CurriculumStage, seeds: list[str],
+    agent: PolicyAgent, config: PPOConfig,
+) -> dict[str, float]:
+    records = []
+    lock = threading.Lock()
+    buckets = [seeds[i::len(clients)] for i in range(len(clients))]
+
+    def worker(client: EngineClient, bucket: list[str]):
+        return [
+            run_episode(client, stage, seed, agent, config, inference_lock=lock, greedy=True)
+            for seed in bucket
+        ]
+
+    with ThreadPoolExecutor(max_workers=len(clients)) as pool:
+        futures = [pool.submit(worker, c, b) for c, b in zip(clients, buckets) if b]
+        for future in futures:
+            records.extend(future.result())
+    wins = sum(r.outcome is True for r in records)
+    errors = sum(r.error is not None for r in records)
+    return {"win_rate": wins / max(len(records), 1), "errors": errors, "episodes": len(records)}
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--run-name", default=time.strftime("m2_%Y%m%d_%H%M%S"))
+    parser.add_argument("--workers", type=int, default=int(os.environ.get("STS2_TRAIN_WORKERS", "6")))
+    parser.add_argument("--iterations", type=int, default=1000)
+    parser.add_argument("--episodes-per-iteration", type=int, default=48)
+    parser.add_argument("--eval-every", type=int, default=10)
+    parser.add_argument("--eval-episodes", type=int, default=50)
+    parser.add_argument("--stage", default=None, help="start at this stage name")
+    parser.add_argument("--max-stage", default=None, help="do not advance past this stage")
+    parser.add_argument("--resume", type=Path, default=None)
+    parser.add_argument("--hidden", type=int, default=128)
+    parser.add_argument("--layers", type=int, default=2)
+    parser.add_argument("--heads", type=int, default=4)
+    parser.add_argument("--terminal-only", action="store_true", help="reward ablation: no floor shaping")
+    parser.add_argument("--init-seed", type=int, default=0)
+    parser.add_argument("--lr", type=float, default=3e-4)
+    args = parser.parse_args()
+
+    if not os.environ.get("STS2_GAME_DIR"):
+        raise SystemExit("STS2_GAME_DIR required")
+    if not DLL.exists():
+        raise SystemExit(f"build first; missing {DLL}")
+
+    torch.manual_seed(args.init_seed)
+    vocab = EntityVocab.load(VOCAB_PATH)
+    split = json.loads(SPLIT_PATH.read_text(encoding="utf-8"))
+    dev_seeds = list(split["development_seeds"])
+
+    config = PPOConfig(
+        learning_rate=args.lr,
+        episodes_per_iteration=args.episodes_per_iteration,
+        floor_shaping=not args.terminal_only,
+    )
+    model = EntityRecurrentPolicy(
+        vocab_size=vocab.size, candidate_dim=CANDIDATE_FEATURE_DIM,
+        hidden=args.hidden, heads=args.heads, layers=args.layers,
+    )
+    optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
+    agent = PolicyAgent(model, vocab)
+
+    run_dir = REPO_ROOT / "rl" / "runs" / args.run_name
+    run_dir.mkdir(parents=True, exist_ok=True)
+    logger = ExperimentLogger(run_dir / "tb")
+    (run_dir / "config.json").write_text(json.dumps({
+        **vars(args), "resume": str(args.resume) if args.resume else None,
+        "ppo": config.__dict__, "vocab_size": vocab.size,
+        "dev_seed_hash": split["development_seed_hash"],
+    }, indent=2, default=str) + "\n", encoding="utf-8")
+
+    with make_client() as probe:
+        catalog = probe.list_models("encounter")
+    stages = ironclad_stages(catalog)
+    clients = [make_client() for _ in range(args.workers)]
+    stage_index = 0
+    iteration_start = 0
+    seed_cursor = 0
+
+    if args.resume:
+        payload = load_checkpoint(args.resume, model, optimizer)
+        stage_index = int(payload["config"].get("stage_index", 0))
+        iteration_start = int(payload["step"]) + 1
+        seed_cursor = int(payload["config"].get("seed_cursor", 0))
+    if args.stage:
+        stage_index = [s.name for s in stages].index(args.stage)
+    max_stage_index = (
+        [s.name for s in stages].index(args.max_stage) if args.max_stage else len(stages) - 1
+    )
+
+    seed_stream = train_seed_stream(seed_cursor)
+    history: list[dict] = []
+    try:
+        for iteration in range(iteration_start, args.iterations):
+            stage = stages[min(stage_index, max_stage_index)]
+            seeds = []
+            for seed in seed_stream:
+                seeds.append(seed)
+                seed_cursor += 1
+                if len(seeds) >= config.episodes_per_iteration:
+                    break
+            start = time.perf_counter()
+            records = collect_iteration(clients, stage, seeds, agent, config)
+            errors = sum(r.error is not None for r in records)
+            if errors / max(len(records), 1) > MAX_EPISODE_ERROR_RATE:
+                for r in records:
+                    if r.error:
+                        print(f"[error] seed={r.seed} {r.error}", file=sys.stderr)
+                raise SystemExit(f"episode error rate too high: {errors}/{len(records)}")
+            stats = ppo_update_epoch(model, optimizer, records, vocab, config)
+            for _ in range(config.update_epochs - 1):
+                stats = ppo_update_epoch(model, optimizer, records, vocab, config)
+            wins = sum(r.outcome is True for r in records)
+            steps_total = sum(len(r.steps) for r in records)
+            row = {
+                "iteration": iteration, "stage": stage.name,
+                "train_win_rate": wins / max(len(records), 1),
+                "episodes": len(records), "errors": errors,
+                "steps": steps_total, **stats,
+                "seconds": round(time.perf_counter() - start, 1),
+            }
+            history.append(row)
+            print(json.dumps(row))
+            for key in ("train_win_rate", "loss", "policy_loss", "value_loss", "entropy"):
+                logger.scalar(f"{stage.name}/{key}", float(row[key]), iteration)
+
+            if (iteration + 1) % args.eval_every == 0:
+                evaluation = evaluate_stage(
+                    clients, stage, dev_seeds[: args.eval_episodes], agent, config,
+                )
+                logger.scalar(f"{stage.name}/dev_win_rate", evaluation["win_rate"], iteration)
+                print(json.dumps({"iteration": iteration, "dev": evaluation, "stage": stage.name}))
+                save_checkpoint(
+                    run_dir / f"ckpt_{iteration:05d}.pt", model, optimizer,
+                    step=iteration,
+                    config={"stage_index": stage_index, "seed_cursor": seed_cursor,
+                            "stage": stage.name, "dev_win_rate": evaluation["win_rate"],
+                            "init_seed": args.init_seed, "terminal_only": args.terminal_only},
+                )
+                threshold = ADVANCE_THRESHOLDS.get(stage.name)
+                if threshold is not None and evaluation["win_rate"] >= threshold and stage_index < max_stage_index:
+                    stage_index += 1
+                    print(json.dumps({"advanced_to": stages[stage_index].name, "iteration": iteration}))
+    finally:
+        for client in clients:
+            client.close()
+        (run_dir / "history.jsonl").write_text(
+            "\n".join(json.dumps(row) for row in history) + "\n", encoding="utf-8",
+        )
+        logger.close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -47,6 +47,52 @@ class RunConfig:
     lang: str = "en"
 
 
+@dataclass(frozen=True)
+class CombatConfig:
+    """Atomic curriculum combat reset: one command, one combat decision back.
+
+    ``None`` fields keep the character's seeded defaults; ids must be canonical
+    (see ``EngineClient.list_models``) — the engine fails closed on unknowns.
+    """
+
+    character: str
+    seed: str
+    encounter: str
+    ascension: int = 0
+    lang: str = "en"
+    hp: int | None = None
+    max_hp: int | None = None
+    gold: int | None = None
+    deck: tuple[str, ...] | None = None
+    relics: tuple[str, ...] | None = None
+    potions: tuple[str, ...] | None = None
+    draw_order: tuple[str, ...] | None = None
+
+    def command(self) -> dict[str, Any]:
+        player: dict[str, Any] = {}
+        for name in ("hp", "max_hp", "gold"):
+            value = getattr(self, name)
+            if value is not None:
+                player[name] = value
+        for name in ("deck", "relics", "potions"):
+            value = getattr(self, name)
+            if value is not None:
+                player[name] = list(value)
+        value: dict[str, Any] = {
+            "cmd": "start_combat",
+            "character": self.character,
+            "seed": self.seed,
+            "ascension": self.ascension,
+            "lang": self.lang,
+            "encounter": self.encounter,
+        }
+        if player:
+            value["player"] = player
+        if self.draw_order is not None:
+            value["draw_order"] = list(self.draw_order)
+        return value
+
+
 class EngineClient:
     """One persistent sts2-cli process with timeout detection and restart."""
 
@@ -150,6 +196,19 @@ class EngineClient:
         self.trace = [command]
         raw = self._request(command)
         return parse_state(raw)
+
+    def reset_combat(self, config: CombatConfig) -> DecisionState:
+        command = config.command()
+        self.trace = [command]
+        return parse_state(self._request(command))
+
+    def list_models(self, kind: str) -> list[dict[str, Any]]:
+        command = {"cmd": "list_models", "kind": kind}
+        self.trace.append(command)
+        response = self._request(command)
+        if response.get("type") != "model_list" or "models" not in response:
+            raise EngineError(f"unexpected list_models response: {response!r}")
+        return list(response["models"])
 
     def step(self, action: ActionCandidate) -> StepResult:
         try:

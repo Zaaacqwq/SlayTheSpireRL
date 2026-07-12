@@ -5,7 +5,7 @@ from typing import Any, Mapping, Sequence
 import torch
 from torch import Tensor
 
-from .observation import normalize_state
+from .observation import GLOBAL_FEATURE_DIM, normalize_state
 from .protocol import ActionCandidate, ProtocolError
 
 # Every action name ``legal_actions`` can emit. A name outside this tuple means the
@@ -20,7 +20,6 @@ ACTION_INDEX: Mapping[str, int] = {name: index for index, name in enumerate(ACTI
 
 # one-hot(action) + card_index + target_index + option_index + argument arity
 CANDIDATE_FEATURE_DIM = len(ACTION_TYPES) + 4
-GLOBAL_FEATURE_DIM = 8
 
 _INDEX_SCALE = 10.0
 

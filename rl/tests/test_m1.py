@@ -3,6 +3,7 @@ import torch
 from sts2rl.checkpoint import load_checkpoint, save_checkpoint
 from sts2rl.losses import generalized_advantage_estimate, behavior_cloning_loss
 from sts2rl.model import CandidatePolicy, RecurrentCandidatePolicy
+from sts2rl.observation import GLOBAL_FEATURE_DIM
 from sts2rl.trajectory import Transition, TrajectoryWriter
 from sts2rl.training import bc_update, ppo_update
 
@@ -10,7 +11,7 @@ from sts2rl.training import bc_update, ppo_update
 def _batch(steps: int = 4, candidates: int = 3, candidate_dim: int = 5):
     generator = torch.Generator().manual_seed(0)
     return {
-        "global": torch.randn(steps, 8, generator=generator),
+        "global": torch.randn(steps, GLOBAL_FEATURE_DIM, generator=generator),
         "candidates": torch.randn(steps, candidates, candidate_dim, generator=generator),
         "mask": torch.ones(steps, candidates, dtype=torch.bool),
         "targets": torch.randint(0, candidates, (steps,), generator=generator),
@@ -25,14 +26,14 @@ def test_gae_and_bc_are_finite():
 
 def test_candidate_policy_masks_invalid_candidates():
     model = CandidatePolicy()
-    logits, value = model(torch.zeros(1, 8), torch.zeros(1, 3, 5), torch.tensor([[True, False, True]]))
+    logits, value = model(torch.zeros(1, GLOBAL_FEATURE_DIM), torch.zeros(1, 3, 5), torch.tensor([[True, False, True]]))
     assert logits.shape == (1, 3) and value.shape == (1,)
     assert logits[0, 1] < -1e10
 
 
 def test_recurrent_policy_resets_with_new_hidden_state():
     model = RecurrentCandidatePolicy()
-    logits, values, hidden = model.forward_sequence(torch.zeros(1, 2, 8), torch.zeros(1, 2, 3, 5), torch.ones(1, 2, 3, dtype=torch.bool))
+    logits, values, hidden = model.forward_sequence(torch.zeros(1, 2, GLOBAL_FEATURE_DIM), torch.zeros(1, 2, 3, 5), torch.ones(1, 2, 3, dtype=torch.bool))
     assert logits.shape == (1, 2, 3) and values.shape == (1, 2) and hidden.shape[1] == 1
 
 

@@ -17,7 +17,7 @@ from torch import Tensor
 from .observation import NormalizedObservation, normalize_state
 from .protocol import DECISIONS
 
-ENTITY_KINDS: tuple[str, ...] = ("card", "enemy", "relic", "potion", "choice", "option")
+ENTITY_KINDS: tuple[str, ...] = ("card", "enemy", "relic", "potion", "choice", "option", "power")
 _KIND_INDEX: Mapping[str, int] = {kind: index + 1 for index, kind in enumerate(ENTITY_KINDS)}
 
 PHASES: tuple[str, ...] = tuple(sorted(DECISIONS))

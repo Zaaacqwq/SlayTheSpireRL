@@ -4,11 +4,12 @@ import torch
 from torch import nn, Tensor
 
 from .entities import ENTITY_KINDS, ENTITY_NUMERIC_DIM, PHASES
+from .observation import GLOBAL_FEATURE_DIM
 
 
 class CandidatePolicy(nn.Module):
     """Small masked candidate scorer; variable candidate count is supported."""
-    def __init__(self, global_dim: int = 8, hidden: int = 128):
+    def __init__(self, global_dim: int = GLOBAL_FEATURE_DIM, hidden: int = 128):
         super().__init__()
         self.encoder = nn.Sequential(nn.Linear(global_dim, hidden), nn.Tanh(), nn.Linear(hidden, hidden), nn.Tanh())
         self.candidate = nn.LazyLinear(hidden)
@@ -24,7 +25,7 @@ class CandidatePolicy(nn.Module):
 
 
 class RecurrentCandidatePolicy(CandidatePolicy):
-    def __init__(self, global_dim: int = 8, hidden: int = 128):
+    def __init__(self, global_dim: int = GLOBAL_FEATURE_DIM, hidden: int = 128):
         super().__init__(global_dim, hidden)
         self.history = nn.GRU(hidden, hidden, batch_first=True)
 
@@ -44,7 +45,7 @@ class EntityTransformerPolicy(nn.Module):
     excluded via attention key padding; padded candidates score dtype-min.
     """
 
-    def __init__(self, vocab_size: int, *, global_dim: int = 8, candidate_dim: int = 16,
+    def __init__(self, vocab_size: int, *, global_dim: int = GLOBAL_FEATURE_DIM, candidate_dim: int = 16,
                  hidden: int = 128, heads: int = 4, layers: int = 2):
         super().__init__()
         self.type_embed = nn.Embedding(len(ENTITY_KINDS) + 1, hidden)
@@ -58,8 +59,7 @@ class EntityTransformerPolicy(nn.Module):
         self.pointer = nn.Linear(hidden, 1)
         self.value = nn.Linear(hidden, 1)
 
-    def forward(self, global_features: Tensor, entities: dict[str, Tensor],
-                candidate_features: Tensor, candidate_mask: Tensor | None = None) -> tuple[Tensor, Tensor]:
+    def encode_context(self, global_features: Tensor, entities: dict[str, Tensor]) -> Tensor:
         tokens = (
             self.type_embed(entities["entity_type"])
             + self.id_embed(entities["entity_id"])
@@ -69,11 +69,48 @@ class EntityTransformerPolicy(nn.Module):
         encoded = self.encoder(tokens, src_key_padding_mask=~entity_mask)
         weights = entity_mask.unsqueeze(-1).to(encoded.dtype)
         pooled = (encoded * weights).sum(-2) / weights.sum(-2).clamp_min(1.0)
-        context = torch.tanh(
+        return torch.tanh(
             pooled + self.global_proj(global_features) + self.phase_embed(entities["phase"])
         )
+
+    def heads(self, context: Tensor, candidate_features: Tensor,
+              candidate_mask: Tensor | None = None) -> tuple[Tensor, Tensor]:
         candidates = self.candidate(candidate_features)
         logits = self.pointer(torch.tanh(candidates + context.unsqueeze(-2))).squeeze(-1)
         if candidate_mask is not None:
             logits = logits.masked_fill(~candidate_mask, torch.finfo(logits.dtype).min)
         return logits, self.value(context).squeeze(-1)
+
+    def forward(self, global_features: Tensor, entities: dict[str, Tensor],
+                candidate_features: Tensor, candidate_mask: Tensor | None = None) -> tuple[Tensor, Tensor]:
+        context = self.encode_context(global_features, entities)
+        return self.heads(context, candidate_features, candidate_mask)
+
+
+class EntityRecurrentPolicy(EntityTransformerPolicy):
+    """Adds GRU history over decision steps.
+
+    The recurrent state is treated as data during PPO updates (stored detached,
+    no backpropagation through time) — gradients flow through the current
+    step's context and the GRU cell only.
+    """
+
+    def __init__(self, vocab_size: int, *, global_dim: int = GLOBAL_FEATURE_DIM, candidate_dim: int = 16,
+                 hidden: int = 128, heads: int = 4, layers: int = 2):
+        super().__init__(vocab_size, global_dim=global_dim, candidate_dim=candidate_dim,
+                         hidden=hidden, heads=heads, layers=layers)
+        self.history = nn.GRUCell(hidden, hidden)
+        self.hidden_size = hidden
+
+    def initial_hidden(self, batch: int = 1) -> Tensor:
+        return torch.zeros(batch, self.hidden_size)
+
+    def forward(self, global_features: Tensor, entities: dict[str, Tensor],  # type: ignore[override]
+                candidate_features: Tensor, candidate_mask: Tensor | None = None,
+                hidden: Tensor | None = None) -> tuple[Tensor, Tensor, Tensor]:
+        context = self.encode_context(global_features, entities)
+        if hidden is None:
+            hidden = self.initial_hidden(context.shape[0]).to(context.device)
+        new_hidden = self.history(context, hidden)
+        logits, value = self.heads(new_hidden, candidate_features, candidate_mask)
+        return logits, value, new_hidden
