@@ -7,7 +7,7 @@ import shutil
 import sys
 
 
-CLI_COMMIT = "91c91a8ad766720ce32ff91461d28ecd7e743985"
+CLI_COMMIT = "d90d46fdb176e517464a55330c4d286283153acc"
 
 
 def doctor(root: Path) -> int:

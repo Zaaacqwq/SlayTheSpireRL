@@ -17,7 +17,7 @@ from torch import Tensor
 from .observation import NormalizedObservation, normalize_state
 from .protocol import DECISIONS
 
-ENTITY_KINDS: tuple[str, ...] = ("card", "enemy", "relic", "potion", "choice", "option", "power")
+ENTITY_KINDS: tuple[str, ...] = ("card", "enemy", "relic", "potion", "choice", "option", "power", "event")
 _KIND_INDEX: Mapping[str, int] = {kind: index + 1 for index, kind in enumerate(ENTITY_KINDS)}
 
 PHASES: tuple[str, ...] = tuple(sorted(DECISIONS))
@@ -43,7 +43,9 @@ def entity_key(entity: Mapping[str, Any]) -> str:
     only carry a room ``type`` (Monster/Elite/Rest/...) which is exactly the
     semantic worth embedding for routing.
     """
-    for name in ("id", "name", "text", "label", "type"):
+    # text_key (event options) and name (rest options: C# type name) are the
+    # stable identities; localized title is a last resort.
+    for name in ("id", "text_key", "name", "text", "label", "title", "type"):
         value = entity.get(name)
         if isinstance(value, str) and value and value != "UNK":
             return value

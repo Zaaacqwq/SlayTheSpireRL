@@ -17,7 +17,7 @@ _KNOWN_FIELDS = frozenset({
     "draw_pile_count", "discard_pile_count",
     "cards", "can_skip", "gold_earned",
     "choices", "options", "bundles", "act", "act_name", "floor",
-    "event_name", "description",
+    "event_id", "event_name", "description",
     "relics", "potions", "card_removal_cost", "can_remove_card",
     "min_select", "max_select", "victory", "score", "message",
 })
@@ -65,6 +65,11 @@ def normalize_state(state: Mapping[str, Any]) -> NormalizedObservation:
         float(state.get("discard_pile_count", 0)),
     )
     entities: list[Mapping[str, Any]] = []
+    event_id = state.get("event_id")
+    if isinstance(event_id, str) and event_id:
+        # Which event this is changes what its options mean; give the encoder
+        # the event identity as a first-class entity.
+        entities.append({"entity_type": "event", "id": event_id})
     for container, field, kind in _ENTITY_GROUPS:
         source = state if container is None else (state.get(container) or {})
         for item in source.get(field) or []:

@@ -30,7 +30,10 @@ CATALOGS: dict[str, tuple[str, str]] = {
     "relic": ("relic", "RELIC."),
     "potion": ("potion", "POTION."),
     "power": ("power", "POWER."),
+    # events already come in full ModelId form (EVENT.X / ancients)
+    "event": ("event", ""),
 }
+OPTION_SWEEP_EPISODES = 40
 
 
 def main() -> int:
@@ -65,9 +68,36 @@ def main() -> int:
                 elif isinstance(node, list):
                     stack.extend(node)
 
+        # Event/rest options have no ModelDb catalog; their stable keys
+        # (text_key / option type name) are harvested from a bounded random
+        # sweep. Rare unseen options fall back to UNK with a warning, as the
+        # roadmap requires.
+        option_keys: set[str] = set()
+        import random
+
+        from sts2rl.entities import entity_key
+        from sts2rl.observation import normalize_state
+        rng = random.Random(0)
+        for index in range(OPTION_SWEEP_EPISODES):
+            state = engine.reset(RunConfig("Ironclad", f"m2-vocab-sweep-{index}"))
+            for _ in range(200):
+                if state.phase == "game_over":
+                    break
+                for entity in normalize_state(state.raw).entities:
+                    if entity.get("entity_type") == "option":
+                        key = entity_key(entity)
+                        if key != "UNK":
+                            option_keys.add(key)
+                state = engine.step(rng.choice(state.candidates)).state
+
         entries: dict[str, dict[str, int]] = {kind: {} for kind in ENTITY_KINDS}
         next_index = 1
         for kind in ENTITY_KINDS:
+            if kind == "option":
+                for key in sorted(option_keys):
+                    entries[kind][key] = next_index
+                    next_index += 1
+                continue
             if kind == "choice":
                 for room_type in sorted(room_types):
                     entries[kind][room_type] = next_index

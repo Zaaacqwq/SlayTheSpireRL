@@ -94,20 +94,30 @@ def test_ppo_update_epoch_raises_probability_of_advantaged_action():
             )
         return float(torch.softmax(logits[0], -1)[0])
 
-    # On-policy data: old_logp comes from the current model, action 0 is
-    # always advantaged. One PPO epoch must move probability toward it.
-    on_policy = agent.act(state, candidates, greedy=True)
-    old_logp = agent.act(state, candidates).logp if on_policy.index == 0 else on_policy.logp
+    # Contrastive on-policy data: choosing action 0 pays +1, action 1 pays -1.
+    # Advantage normalization keeps the signs opposed, so one PPO epoch must
+    # move probability toward action 0. (Single-action data would get mixed
+    # signs from normalization; value_coef=0 keeps the shared trunk out of it.)
+    from sts2rl.ppo import encode_update_batch
+    probe = encode_update_batch(
+        [StoredStep(state, candidates, 0, 0.0, 0.0, 0.0, None)], vocab, model.hidden_size,
+    )
+    with torch.no_grad():
+        logits, _, _ = model(probe["global"], probe["entities"], probe["candidates"],
+                             probe["mask"], candidate_slots=probe["slots"], hidden=probe["hidden"])
+        log_probs = torch.log_softmax(logits[0], -1)
     records = []
-    for _ in range(8):
-        record = EpisodeRecord("s", [
-            StoredStep(state, candidates, 0, old_logp, 0.0, 1.0, None) for _ in range(4)
-        ], True, truncated=False)
-        finalize_episode(record, PPOConfig())
-        records.append(record)
+    for index, reward in ((0, 1.0), (1, -1.0)):
+        for _ in range(4):
+            record = EpisodeRecord("s", [
+                StoredStep(state, candidates, index, float(log_probs[index]), 0.0, reward, None)
+            ], True, truncated=False)
+            finalize_episode(record, PPOConfig())
+            records.append(record)
     before = probability_of_action_zero()
     stats = ppo_update_epoch(
-        model, optimizer, records, vocab, PPOConfig(minibatch_size=16, entropy_coef=0.0),
+        model, optimizer, records, vocab,
+        PPOConfig(minibatch_size=16, entropy_coef=0.0, value_coef=0.0),
     )
     after = probability_of_action_zero()
     assert after > before
