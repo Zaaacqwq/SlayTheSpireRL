@@ -83,7 +83,7 @@ function MetricChart({ rows, segments, series, height, percent = false }: {
         />
         {series.map(spec => (
           <Line key={spec.key} type="monotone" dataKey={spec.key} name={spec.name}
-                stroke={spec.color} strokeWidth={2} dot={false} connectNulls />
+                stroke={spec.color} strokeWidth={2} dot={false} connectNulls isAnimationActive={false} />
         ))}
       </LineChart>
     </ResponsiveContainer>
@@ -121,7 +121,7 @@ export function MiniChart({ rows, dataKey, title }: { rows: MetricRow[]; dataKey
               labelFormatter={iteration => `迭代 ${iteration}`}
               formatter={value => [num(value, 4), title]}
             />
-            <Line type="monotone" dataKey={dataKey} stroke={SERIES.blue} strokeWidth={1.5} dot={false} />
+            <Line type="monotone" dataKey={dataKey} stroke={SERIES.blue} strokeWidth={1.5} dot={false} isAnimationActive={false} />
           </LineChart>
         </ResponsiveContainer>
       ) : <Empty text="暂无数据" />}
