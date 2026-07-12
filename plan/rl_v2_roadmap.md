@@ -5,7 +5,7 @@
 ## 固定架构决策
 
 - 训练后端只使用真实 `sts2.dll`；不重写游戏规则，不提交 DLL 或资产。
-- `external/sts2-cli` 是固定 commit 的 Git submodule；当前固定 fork commit `d90d46fdb176e517464a55330c4d286283153acc`，基于上游 MIT。
+- `external/sts2-cli` 是固定 commit 的 Git submodule；当前固定 fork commit `2f51640f11cbc9b55d54767131529bc7e56a991c`，基于上游 MIT。
 - Python 接口为 `EngineClient.reset(RunConfig) -> DecisionState`、`step(ActionCandidate) -> StepResult`、`close()`；每 worker 一个持久进程，超时后重启。
 - 状态使用可变实体编码、phase embedding、GRU 历史、Transformer、动态候选 pointer head 和 value head；未知内容进入 `UNK` 并告警。
 - 自定义 PyTorch Recurrent Masked PPO，支持 BC；默认 gamma 0.999、GAE 0.95、clip 0.2、AdamW。

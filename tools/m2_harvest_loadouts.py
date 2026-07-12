@@ -38,7 +38,10 @@ def strip(prefix: str, value: str) -> str:
 
 def snapshot(state) -> dict | None:
     player = state.raw.get("player") or {}
-    deck = [strip("CARD.", str(card.get("id"))) for card in player.get("deck") or [] if card.get("id")]
+    deck = [
+        strip("CARD.", str(card.get("id"))) + ("+" if card.get("upgraded") else "")
+        for card in player.get("deck") or [] if card.get("id")
+    ]
     if not deck:
         return None
     return {

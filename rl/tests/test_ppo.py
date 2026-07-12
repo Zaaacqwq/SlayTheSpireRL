@@ -146,7 +146,7 @@ def test_boss_bridge_stage_uses_harvested_loadouts():
     names = [s.name for s in stages]
     assert names == ["normal_combat", "mixed_combat", "boss_combat", "act1", "full_a0"]
     bridge = stages[2]
-    assert set(bridge.encounters) == {"E1", "B1"}
+    assert set(bridge.encounters) == {"B1"}
     assert sample_loadout(bridge, "seed-1") == sample_loadout(bridge, "seed-1")
     config = episode_config(bridge, "seed-1")
     chosen = sample_loadout(bridge, "seed-1")

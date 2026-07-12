@@ -113,7 +113,9 @@ def ironclad_stages(
         CurriculumStage("mixed_combat", weak + regular + elite),
     ]
     if boss_loadouts:
-        stages.append(CurriculumStage("boss_combat", elite + boss, loadouts=tuple(boss_loadouts)))
+        # Boss-only: elites are already covered by mixed_combat, and averaging
+        # them in masked near-zero boss win rates behind a passing stage score.
+        stages.append(CurriculumStage("boss_combat", boss, loadouts=tuple(boss_loadouts)))
     stages.append(CurriculumStage("act1", max_act=1))
     stages.append(CurriculumStage("full_a0"))
     return tuple(stages)
