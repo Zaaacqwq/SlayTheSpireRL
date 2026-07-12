@@ -513,7 +513,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store" if content_type.startswith("application/json") else "public, max-age=3600")
+        # Hashed asset filenames may cache; JSON and index.html must not.
+        cacheable = not content_type.startswith(("application/json", "text/html"))
+        self.send_header("Cache-Control", "public, max-age=3600" if cacheable else "no-store")
         self.end_headers()
         self.wfile.write(body)
 
