@@ -60,7 +60,7 @@ class EntityTransformerPolicy(nn.Module):
         self.pointer = nn.Linear(hidden, 1)
         self.value = nn.Linear(hidden, 1)
 
-    def encode_context(self, global_features: Tensor, entities: dict[str, Tensor]) -> Tensor:
+    def encode_context(self, global_features: Tensor, entities: dict[str, Tensor]) -> tuple[Tensor, Tensor]:
         tokens = (
             self.type_embed(entities["entity_type"])
             + self.id_embed(entities["entity_id"])
@@ -70,22 +70,33 @@ class EntityTransformerPolicy(nn.Module):
         encoded = self.encoder(tokens, src_key_padding_mask=~entity_mask)
         weights = entity_mask.unsqueeze(-1).to(encoded.dtype)
         pooled = (encoded * weights).sum(-2) / weights.sum(-2).clamp_min(1.0)
-        return torch.tanh(
+        context = torch.tanh(
             pooled + self.global_proj(global_features) + self.phase_embed(entities["phase"])
         )
+        return context, encoded
 
-    def heads(self, context: Tensor, candidate_features: Tensor,
-              candidate_mask: Tensor | None = None) -> tuple[Tensor, Tensor]:
+    def heads(self, context: Tensor, encoded_entities: Tensor, candidate_features: Tensor,
+              candidate_mask: Tensor | None = None,
+              candidate_slots: Tensor | None = None) -> tuple[Tensor, Tensor]:
         candidates = self.candidate(candidate_features)
+        if candidate_slots is not None:
+            # "Take THIS card" points at that card's transformer output; a bare
+            # index scalar in the features is not reliably learnable.
+            safe = candidate_slots.clamp_min(0)
+            gathered = encoded_entities.gather(
+                1, safe.unsqueeze(-1).expand(-1, -1, encoded_entities.shape[-1])
+            )
+            candidates = candidates + gathered * (candidate_slots >= 0).unsqueeze(-1)
         logits = self.pointer(torch.tanh(candidates + context.unsqueeze(-2))).squeeze(-1)
         if candidate_mask is not None:
             logits = logits.masked_fill(~candidate_mask, torch.finfo(logits.dtype).min)
         return logits, self.value(context).squeeze(-1)
 
     def forward(self, global_features: Tensor, entities: dict[str, Tensor],
-                candidate_features: Tensor, candidate_mask: Tensor | None = None) -> tuple[Tensor, Tensor]:
-        context = self.encode_context(global_features, entities)
-        return self.heads(context, candidate_features, candidate_mask)
+                candidate_features: Tensor, candidate_mask: Tensor | None = None,
+                candidate_slots: Tensor | None = None) -> tuple[Tensor, Tensor]:
+        context, encoded = self.encode_context(global_features, entities)
+        return self.heads(context, encoded, candidate_features, candidate_mask, candidate_slots)
 
 
 class EntityRecurrentPolicy(EntityTransformerPolicy):
@@ -108,10 +119,11 @@ class EntityRecurrentPolicy(EntityTransformerPolicy):
 
     def forward(self, global_features: Tensor, entities: dict[str, Tensor],  # type: ignore[override]
                 candidate_features: Tensor, candidate_mask: Tensor | None = None,
+                candidate_slots: Tensor | None = None,
                 hidden: Tensor | None = None) -> tuple[Tensor, Tensor, Tensor]:
-        context = self.encode_context(global_features, entities)
+        context, encoded = self.encode_context(global_features, entities)
         if hidden is None:
             hidden = self.initial_hidden(context.shape[0]).to(context.device)
         new_hidden = self.history(context, hidden)
-        logits, value = self.heads(new_hidden, candidate_features, candidate_mask)
+        logits, value = self.heads(new_hidden, encoded, candidate_features, candidate_mask, candidate_slots)
         return logits, value, new_hidden

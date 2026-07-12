@@ -137,6 +137,49 @@ class EntityVocab:
         return cls({kind: dict(entries) for kind, entries in payload["entries"].items()})
 
 
+# candidate action -> (entity kind, argument holding the entity's index)
+_CANDIDATE_ENTITY_REFS: Mapping[str, tuple[str, str]] = {
+    "play_card": ("card", "card_index"),
+    "select_card_reward": ("card", "card_index"),
+    "buy_card": ("card", "card_index"),
+    "use_potion": ("potion", "potion_index"),
+    "buy_potion": ("potion", "potion_index"),
+    "buy_relic": ("relic", "relic_index"),
+    "choose_option": ("option", "option_index"),
+    "select_bundle": ("choice", "bundle_index"),
+}
+
+
+def candidate_entity_slots(observation: NormalizedObservation, candidates) -> list[int]:
+    """Entity row referenced by each candidate, -1 when there is none.
+
+    The pointer head gathers the referenced entity's transformer output, so
+    "take THIS card" is tied to that card's embedding instead of a bare index
+    scalar the model would have to correlate with entity numerics on its own.
+    """
+    slots: list[int] = []
+    for candidate in candidates:
+        args = candidate.args or {}
+        slot = -1
+        ref = _CANDIDATE_ENTITY_REFS.get(candidate.action)
+        if ref is not None:
+            kind, arg = ref
+            wanted = args.get(arg)
+            for row, entity in enumerate(observation.entities):
+                if entity.get("entity_type") == kind and entity.get("index") == wanted:
+                    slot = row
+                    break
+        elif candidate.action == "select_map_node":
+            for row, entity in enumerate(observation.entities):
+                if (entity.get("entity_type") == "choice"
+                        and entity.get("col") == args.get("col")
+                        and entity.get("row") == args.get("row")):
+                    slot = row
+                    break
+        slots.append(slot)
+    return slots
+
+
 def encode_entity_batch(
     observations: Sequence[NormalizedObservation], vocab: EntityVocab
 ) -> dict[str, Tensor]:

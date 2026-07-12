@@ -167,3 +167,54 @@ def test_transformer_policy_learns_a_fixed_batch():
         first = float(loss.detach()) if first is None else first
         last = float(loss.detach())
     assert last < first * 0.2
+
+
+def test_candidate_entity_slots_align_candidates_to_entities():
+    from sts2rl.entities import candidate_entity_slots
+    from sts2rl.protocol import ActionCandidate
+
+    obs = normalize_state(COMBAT_STATE)
+    candidates = (
+        ActionCandidate("play_card", {"card_index": 1}),
+        ActionCandidate("end_turn", {}),
+    )
+    slots = candidate_entity_slots(obs, candidates)
+    assert slots[1] == -1
+    assert obs.entities[slots[0]]["id"] == "CARD.DEFEND_IRONCLAD"
+
+    map_state = {
+        "decision": "map_select",
+        "choices": [{"col": 0, "row": 1, "type": "Monster"}, {"col": 2, "row": 1, "type": "RestSite"}],
+        "player": {"hp": 10},
+    }
+    map_obs = normalize_state(map_state)
+    map_candidates = (
+        ActionCandidate("select_map_node", {"col": 2, "row": 1}),
+        ActionCandidate("select_map_node", {"col": 0, "row": 1}),
+    )
+    map_slots = candidate_entity_slots(map_obs, map_candidates)
+    assert map_obs.entities[map_slots[0]]["type"] == "RestSite"
+    assert map_obs.entities[map_slots[1]]["type"] == "Monster"
+
+
+def test_pointer_gather_changes_logits():
+    from sts2rl.entities import candidate_entity_slots
+    from sts2rl.model import EntityTransformerPolicy
+    from sts2rl.protocol import ActionCandidate
+    from sts2rl.features import encode_candidates
+
+    vocab = build_vocab()
+    torch.manual_seed(0)
+    obs = normalize_state(COMBAT_STATE)
+    entities = encode_entity_batch([obs], vocab)
+    candidates = (
+        ActionCandidate("play_card", {"card_index": 0}),
+        ActionCandidate("play_card", {"card_index": 1}),
+    )
+    features = encode_candidates(candidates).unsqueeze(0)
+    slots = torch.tensor([candidate_entity_slots(obs, candidates)])
+    model = EntityTransformerPolicy(vocab_size=vocab.size, hidden=32, heads=2, layers=1)
+    with torch.no_grad():
+        with_gather, _ = model(torch.zeros(1, 12), entities, features, candidate_slots=slots)
+        without_gather, _ = model(torch.zeros(1, 12), entities, features)
+    assert not torch.allclose(with_gather, without_gather)

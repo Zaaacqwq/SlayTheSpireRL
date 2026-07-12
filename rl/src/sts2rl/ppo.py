@@ -17,7 +17,7 @@ import torch
 from .agent import PolicyAgent, entities_global
 from .curriculum import CurriculumStage, episode_config
 from .engine import CombatConfig, EngineClient
-from .entities import EntityVocab, encode_entity_batch
+from .entities import EntityVocab, candidate_entity_slots, encode_entity_batch
 from .features import encode_candidates
 from .losses import generalized_advantage_estimate, ppo_clipped_loss
 from .observation import normalize_state
@@ -160,12 +160,14 @@ def encode_update_batch(steps: Sequence[StoredStep], vocab: EntityVocab, hidden_
     observations = [normalize_state(s.raw_state) for s in steps]
     entities = encode_entity_batch(observations, vocab)
     width = max(len(s.candidates) for s in steps)
-    candidate_rows, masks = [], []
-    for s in steps:
+    candidate_rows, masks, slot_rows = [], [], []
+    for s, observation in zip(steps, observations):
         encoded = encode_candidates(s.candidates)
         padding = width - encoded.shape[0]
         candidate_rows.append(torch.nn.functional.pad(encoded, (0, 0, 0, padding)))
         masks.append(torch.tensor([True] * encoded.shape[0] + [False] * padding))
+        slots = candidate_entity_slots(observation, s.candidates)
+        slot_rows.append(torch.tensor(slots + [-1] * padding, dtype=torch.long))
     hiddens = torch.stack([
         torch.zeros(hidden_size) if s.hidden is None
         else torch.tensor(s.hidden, dtype=torch.float32)
@@ -179,6 +181,7 @@ def encode_update_batch(steps: Sequence[StoredStep], vocab: EntityVocab, hidden_
         "actions": torch.tensor([s.index for s in steps], dtype=torch.long),
         "old_logp": torch.tensor([s.logp for s in steps], dtype=torch.float32),
         "hidden": hiddens,
+        "slots": torch.stack(slot_rows),
     }
 
 
@@ -208,7 +211,7 @@ def ppo_update_epoch(
         batch = encode_update_batch([steps[i] for i in chosen], vocab, model.hidden_size)
         logits, values, _ = model(
             batch["global"], batch["entities"], batch["candidates"], batch["mask"],
-            hidden=batch["hidden"],
+            candidate_slots=batch["slots"], hidden=batch["hidden"],
         )
         log_probs = torch.log_softmax(logits, dim=-1)
         new_logp = log_probs.gather(-1, batch["actions"].unsqueeze(-1)).squeeze(-1)

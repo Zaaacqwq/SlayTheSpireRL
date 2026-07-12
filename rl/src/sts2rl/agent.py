@@ -7,7 +7,7 @@ from typing import Any, Mapping, Sequence
 import torch
 from torch import Tensor
 
-from .entities import EntityVocab, encode_entity_batch
+from .entities import EntityVocab, candidate_entity_slots, encode_entity_batch
 from .features import encode_candidates
 from .model import EntityRecurrentPolicy, EntityTransformerPolicy
 from .observation import normalize_state
@@ -42,6 +42,7 @@ class PolicyAgent:
         observation = normalize_state(raw_state)
         entities = encode_entity_batch([observation], self.vocab)
         candidate_features = encode_candidates(candidates).unsqueeze(0)
+        slots = torch.tensor([candidate_entity_slots(observation, candidates)], dtype=torch.long)
         with torch.no_grad():
             if self.recurrent:
                 hidden_tensor = (
@@ -50,12 +51,13 @@ class PolicyAgent:
                 )
                 logits, value, new_hidden = self.model(
                     entities_global(observation), entities, candidate_features,
-                    hidden=hidden_tensor,
+                    candidate_slots=slots, hidden=hidden_tensor,
                 )
                 next_hidden: tuple[float, ...] | None = tuple(new_hidden[0].tolist())
             else:
                 logits, value = self.model(
-                    entities_global(observation), entities, candidate_features
+                    entities_global(observation), entities, candidate_features,
+                    candidate_slots=slots,
                 )
                 next_hidden = None
             probs = torch.softmax(logits[0], dim=-1)
