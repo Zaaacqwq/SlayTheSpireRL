@@ -112,3 +112,15 @@ def test_ppo_update_epoch_raises_probability_of_advantaged_action():
     after = probability_of_action_zero()
     assert after > before
     assert all(torch.isfinite(torch.tensor(v)) for v in stats.values())
+
+
+def test_combat_starting_hp_is_deterministic_and_bounded():
+    from sts2rl.curriculum import COMBAT_HP_RANGE, sample_starting_hp
+    stage = ironclad_stages(CATALOG)[0]
+    values = [sample_starting_hp(stage, f"seed-{i}") for i in range(200)]
+    assert all(COMBAT_HP_RANGE[0] <= v <= COMBAT_HP_RANGE[1] for v in values)
+    assert sample_starting_hp(stage, "seed-3") == sample_starting_hp(stage, "seed-3")
+    assert len(set(values)) > 20
+    config = episode_config(stage, "seed-3")
+    assert config.hp == sample_starting_hp(stage, "seed-3")
+    assert config.max_hp == 80

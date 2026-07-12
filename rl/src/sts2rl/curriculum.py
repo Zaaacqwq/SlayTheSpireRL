@@ -39,6 +39,22 @@ def sample_encounter(stage: CurriculumStage, seed: str) -> str:
     return stage.encounters[int.from_bytes(digest[:8], "big") % len(stage.encounters)]
 
 
+COMBAT_HP_RANGE = (25, 80)
+
+
+def sample_starting_hp(stage: CurriculumStage, seed: str) -> int:
+    """Combat episodes start at a seed-determined HP, not always full.
+
+    Full runs carry HP between fights; a policy trained only from full HP
+    never learns that blocking is a cross-fight resource and dies to chip
+    damage mid-run (observed: floor 6-9 deaths against weak monsters that
+    the same policy beats 96% of the time from full HP).
+    """
+    low, high = COMBAT_HP_RANGE
+    digest = hashlib.sha256(f"m2-curriculum-hp:{stage.name}:{seed}".encode()).digest()
+    return low + int.from_bytes(digest[:8], "big") % (high - low + 1)
+
+
 def episode_config(
     stage: CurriculumStage, seed: str, *, character: str = "Ironclad", ascension: int = 0
 ) -> CombatConfig | RunConfig:
@@ -46,6 +62,7 @@ def episode_config(
         return CombatConfig(
             character, seed, sample_encounter(stage, seed), ascension=ascension,
             deck=IRONCLAD_STARTING_DECK if character == "Ironclad" else None,
+            hp=sample_starting_hp(stage, seed), max_hp=80,
         )
     return RunConfig(character, seed, ascension)
 

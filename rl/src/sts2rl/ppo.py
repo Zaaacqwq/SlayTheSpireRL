@@ -62,6 +62,7 @@ class EpisodeRecord:
     outcome: bool | None
     truncated: bool
     error: str | None = None
+    final_floor: float = 0.0
     advantages: list[float] = field(default_factory=list)
     returns: list[float] = field(default_factory=list)
 
@@ -102,9 +103,9 @@ def run_episode(
             if done:
                 if steps:
                     steps[-1].reward += 1.0 if outcome else -1.0
-                return EpisodeRecord(seed, steps, outcome, truncated=False)
+                return EpisodeRecord(seed, steps, outcome, truncated=False, final_floor=_floor(state))
             if len(steps) >= config.max_episode_steps:
-                return EpisodeRecord(seed, steps, None, truncated=True)
+                return EpisodeRecord(seed, steps, None, truncated=True, final_floor=_floor(state))
             if inference_lock:
                 with inference_lock:
                     step = agent.act(state.raw, state.candidates, hidden, greedy=greedy)
@@ -124,7 +125,8 @@ def run_episode(
             hidden = step.hidden
             state = result.state
     except Exception as exc:  # engine faults poison the worker's episode only
-        return EpisodeRecord(seed, steps, None, truncated=False, error=type(exc).__name__)
+        return EpisodeRecord(seed, steps, None, truncated=False, error=type(exc).__name__,
+                             final_floor=_floor(state) if steps else 0.0)
 
 
 def _terminal_outcome(stage: CurriculumStage, state: DecisionState) -> tuple[bool | None, bool]:

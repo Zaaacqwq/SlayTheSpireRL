@@ -103,7 +103,12 @@ def evaluate_stage(
             records.extend(future.result())
     wins = sum(r.outcome is True for r in records)
     errors = sum(r.error is not None for r in records)
-    return {"win_rate": wins / max(len(records), 1), "errors": errors, "episodes": len(records)}
+    return {
+        "win_rate": wins / max(len(records), 1),
+        "avg_floor": round(sum(r.final_floor for r in records) / max(len(records), 1), 2),
+        "errors": errors,
+        "episodes": len(records),
+    }
 
 
 def main() -> int:
@@ -203,12 +208,14 @@ def main() -> int:
                 "iteration": iteration, "stage": stage.name,
                 "train_win_rate": wins / max(len(records), 1),
                 "episodes": len(records), "errors": errors,
-                "steps": steps_total, **stats,
+                "steps": steps_total,
+                "avg_floor": round(sum(r.final_floor for r in records) / max(len(records), 1), 2),
+                **stats,
                 "seconds": round(time.perf_counter() - start, 1),
             }
             history.append(row)
             print(json.dumps(row))
-            for key in ("train_win_rate", "loss", "policy_loss", "value_loss", "entropy"):
+            for key in ("train_win_rate", "avg_floor", "loss", "policy_loss", "value_loss", "entropy"):
                 logger.scalar(f"{stage.name}/{key}", float(row[key]), iteration)
 
             if (iteration + 1) % args.eval_every == 0:
