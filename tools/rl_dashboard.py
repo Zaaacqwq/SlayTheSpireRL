@@ -26,6 +26,8 @@ os.environ.setdefault("ARROW_NUM_THREADS", "1")
 _PARQUET_READ_LOCK = threading.RLock()
 _LEGACY_CACHE_LOCK = threading.Lock()
 _LEGACY_CACHE: dict[Path, tuple[tuple[tuple[str, int, int], ...], list[dict]]] = {}
+_ENRICH_CACHE_LOCK = threading.Lock()
+_ENRICH_CACHE: dict[Path, tuple[tuple[int, int], dict]] = {}
 
 
 def _json_load(path: Path):
@@ -226,6 +228,84 @@ def run_metrics(data_root: Path, run_name: str, after: int | None = None) -> dic
     return {"run": run_name, "source": source, "metrics": metric_names, "rows": history}
 
 
+def _episode_route(rows: list[dict]) -> list[dict]:
+    """Floor/room transitions for a run: the at-a-glance path the agent took."""
+    route: list[dict] = []
+    for row in rows:
+        state = row.get("state") or {}
+        context = _context(state)
+        floor = context.get("floor", state.get("floor"))
+        room = context.get("room_type")
+        if room == "Map":
+            continue
+        if route and route[-1]["floor"] == floor and route[-1]["room_type"] == room:
+            continue
+        route.append({"floor": floor, "room_type": room})
+    return route
+
+
+def _enrich_episode(run_dir: Path, entry: dict) -> dict:
+    """Add route/HP/deck summary from the episode file, cached by mtime+size."""
+    relative = entry.get("path")
+    if not relative or "route" in entry:
+        return entry
+    path = (run_dir / relative).resolve()
+    try:
+        stat = path.stat()
+    except OSError:
+        return entry
+    fingerprint = (stat.st_size, stat.st_mtime_ns)
+    with _ENRICH_CACHE_LOCK:
+        cached = _ENRICH_CACHE.get(path)
+    if not cached or cached[0] != fingerprint:
+        try:
+            rows, _ = load_episode_rows(path)
+        except Exception:
+            return entry
+        last_state = (rows[-1].get("state") or {}) if rows else {}
+        player = last_state.get("player") or {}
+        extra = {
+            "route": _episode_route(rows),
+            "final_hp": player.get("hp"),
+            "max_hp": player.get("max_hp"),
+            "gold": player.get("gold"),
+            "deck_size": player.get("deck_size") or len(player.get("deck") or []) or None,
+        }
+        cached = (fingerprint, extra)
+        with _ENRICH_CACHE_LOCK:
+            _ENRICH_CACHE[path] = cached
+    return {**entry, **cached[1]}
+
+
+def run_timeline(data_root: Path, run_name: str) -> dict:
+    """Episode outcomes grouped by (iteration, split): the learning journey."""
+    run_dir = data_root / run_name
+    if not _inside(data_root, run_dir) or not run_dir.exists():
+        raise FileNotFoundError(run_name)
+    groups: dict[tuple, list[dict]] = defaultdict(list)
+    for row in _manifest(run_dir):
+        groups[(row.get("iteration"), row.get("split"))].append(row)
+    items = []
+    for (iteration, split), bucket in sorted(
+            groups.items(),
+            key=lambda kv: (kv[0][0] if kv[0][0] is not None else -1, str(kv[0][1]))):
+        finished = [row for row in bucket if row.get("outcome") is not None]
+        wins = sum(row.get("outcome") is True for row in finished)
+        rewards = [float(row["total_reward"]) for row in bucket
+                   if isinstance(row.get("total_reward"), (int, float))]
+        floors = [float(row["final_floor"]) for row in bucket
+                  if isinstance(row.get("final_floor"), (int, float))]
+        items.append({
+            "iteration": iteration, "split": split, "stage": bucket[0].get("stage"),
+            "episodes": len(bucket), "wins": wins,
+            "win_rate": wins / len(finished) if finished else None,
+            "avg_reward": statistics.fmean(rewards) if rewards else None,
+            "avg_floor": statistics.fmean(floors) if floors else None,
+            "errors": sum(bool(row.get("error")) for row in bucket),
+        })
+    return {"run": run_name, "items": items}
+
+
 def list_episodes(data_root: Path, run_name: str, query: dict[str, list[str]]) -> dict:
     if run_name == "legacy":
         rows = _legacy_episodes(data_root)
@@ -238,12 +318,15 @@ def list_episodes(data_root: Path, run_name: str, query: dict[str, list[str]]) -
     split = query.get("split", [""])[0]
     outcome = query.get("outcome", [""])[0]
     stage = query.get("stage", [""])[0]
+    iteration = query.get("iteration", [""])[0]
     if search:
         rows = [row for row in rows if search in str(row.get("episode_id", "")).lower()]
     if split:
         rows = [row for row in rows if row.get("split") == split]
     if stage:
         rows = [row for row in rows if row.get("stage") == stage]
+    if iteration:
+        rows = [row for row in rows if str(row.get("iteration")) == iteration]
     if outcome in {"win", "loss"}:
         expected = outcome == "win"
         rows = [row for row in rows if row.get("outcome") is expected]
@@ -254,7 +337,11 @@ def list_episodes(data_root: Path, run_name: str, query: dict[str, list[str]]) -
     page = max(1, int(query.get("page", ["1"])[0]))
     page_size = min(200, max(1, int(query.get("page_size", ["50"])[0])))
     start = (page - 1) * page_size
-    return {"items": rows[start:start + page_size], "total": total,
+    page_rows = rows[start:start + page_size]
+    if run_name != "legacy":
+        run_dir = data_root / run_name
+        page_rows = [_enrich_episode(run_dir, row) for row in page_rows]
+    return {"items": page_rows, "total": total,
             "page": page, "page_size": page_size}
 
 
@@ -333,7 +420,12 @@ def summarize_episode_row(row: dict) -> dict:
     }
 
 
-def episode_detail(data_root: Path, run_name: str, episode_id: str) -> dict:
+def episode_detail(data_root: Path, run_name: str, episode_id: str,
+                   query: dict[str, list[str]] | None = None) -> dict:
+    """Look up one episode; iteration/split narrow re-recorded seeds."""
+    query = query or {}
+    iteration = query.get("iteration", [""])[0]
+    split = query.get("split", [""])[0]
     candidates: list[tuple[Path, dict]] = []
     if run_name == "legacy":
         for item in _legacy_episodes(data_root):
@@ -343,6 +435,12 @@ def episode_detail(data_root: Path, run_name: str, episode_id: str) -> dict:
         for item in _manifest(run_dir):
             if item.get("path"):
                 candidates.append((run_dir / item["path"], item))
+    if iteration:
+        candidates = [(path, meta) for path, meta in candidates
+                      if str(meta.get("iteration")) == iteration]
+    if split:
+        candidates = [(path, meta) for path, meta in candidates
+                      if meta.get("split") == split]
     match = next(((path, meta) for path, meta in candidates
                   if str(meta.get("episode_id")) == episode_id), None)
     if not match or not _inside(data_root, match[0]):
@@ -450,8 +548,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._json(run_summary(self.server.data_root, self.server.data_root / parts[2]))
             elif len(parts) == 4 and parts[:2] == ["api", "runs"] and parts[3] == "episodes":
                 self._json(list_episodes(self.server.data_root, parts[2], query))
+            elif len(parts) == 4 and parts[:2] == ["api", "runs"] and parts[3] == "timeline":
+                self._json(run_timeline(self.server.data_root, parts[2]))
             elif len(parts) == 5 and parts[:2] == ["api", "runs"] and parts[3] == "episodes":
-                self._json(episode_detail(self.server.data_root, parts[2], parts[4]))
+                self._json(episode_detail(self.server.data_root, parts[2], parts[4], query))
             elif parsed.path == "/api/catalog":
                 self._json(build_catalog(self.server.data_root))
             elif parsed.path.startswith("/api/episodes/"):

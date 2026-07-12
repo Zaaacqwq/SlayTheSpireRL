@@ -13,11 +13,13 @@ from tools.rl_dashboard import (
     DashboardServer,
     api_episode_detail,
     build_catalog,
+    episode_detail,
     load_eval_summary,
     load_history_for_run,
     list_episodes,
     run_metrics,
     run_summary,
+    run_timeline,
     summarize_episode,
 )
 
@@ -212,6 +214,66 @@ def test_live_run_api_reads_manifest_and_pivots_scalars(tmp_path: Path) -> None:
     assert summary["stats"]["win_rate"] == 1.0
     assert summary["stats"]["avg_reward"] == 1.4
     assert episodes["total"] == 1
+
+
+def make_replay_run(root: Path) -> Path:
+    """A run whose dev seed was re-recorded at two checkpoints."""
+    run = root / "replay_run"
+    run.mkdir(parents=True)
+    (run / "config.json").write_text('{"run_name":"replay_run"}\n')
+    entries = []
+    for iteration, outcome in ((9, False), (789, True)):
+        relative = f"episodes/replay/{iteration:05d}_seed-1.parquet"
+        rows = [{**row, "episode_id": "seed-1", "outcome": outcome} for row in make_episode_rows()]
+        make_parquet(run / relative, rows)
+        entries.append({
+            "episode_id": "seed-1", "path": relative, "iteration": iteration,
+            "stage": "act1", "split": "replay", "outcome": outcome,
+            "total_reward": 1.0 if outcome else -1.0, "final_floor": 3,
+            "steps": len(rows), "truncated": False, "error": None,
+        })
+    write_jsonl(run / "episodes" / "manifest.jsonl", entries)
+    return run
+
+
+def test_timeline_groups_episodes_by_iteration_and_split(tmp_path: Path) -> None:
+    root = tmp_path / "runs"
+    make_replay_run(root)
+
+    timeline = run_timeline(root, "replay_run")
+    assert [item["iteration"] for item in timeline["items"]] == [9, 789]
+    assert timeline["items"][0]["win_rate"] == 0.0
+    assert timeline["items"][1]["win_rate"] == 1.0
+    assert timeline["items"][0]["split"] == "replay"
+
+
+def test_episode_detail_disambiguates_re_recorded_seeds(tmp_path: Path) -> None:
+    root = tmp_path / "runs"
+    make_replay_run(root)
+
+    early = episode_detail(root, "replay_run", "seed-1", {"iteration": ["9"]})
+    late = episode_detail(root, "replay_run", "seed-1", {"iteration": ["789"]})
+    assert early["meta"]["outcome"] is False
+    assert late["meta"]["outcome"] is True
+
+    with pytest.raises(FileNotFoundError):
+        episode_detail(root, "replay_run", "seed-1", {"iteration": ["42"]})
+
+
+def test_episode_list_filters_by_iteration_and_enriches_route(tmp_path: Path) -> None:
+    root = tmp_path / "runs"
+    make_replay_run(root)
+
+    listing = list_episodes(root, "replay_run", {"iteration": ["789"]})
+    assert listing["total"] == 1
+    item = listing["items"][0]
+    assert item["iteration"] == 789
+    assert item["route"] == [
+        {"floor": 2, "room_type": "Event"},
+        {"floor": 3, "room_type": "Boss"},
+    ]
+    assert item["final_hp"] == 0
+    assert item["deck_size"] == 2
 
 
 def test_concurrent_legacy_requests_do_not_overlap_parquet_reads(tmp_path: Path) -> None:
