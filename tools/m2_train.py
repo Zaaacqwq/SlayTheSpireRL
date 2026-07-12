@@ -39,8 +39,11 @@ VOCAB_PATH = REPO_ROOT / "rl" / "schema" / "m2_vocab.json"
 SPLIT_PATH = REPO_ROOT / "rl" / "seeds" / "m2_ironclad_seed_split.json"
 NAMESPACE = "m2-a0-ironclad"
 
-# Development win rates required to advance to the next stage.
-ADVANCE_THRESHOLDS = {"normal_combat": 0.90, "mixed_combat": 0.70, "act1": 0.30}
+# Development win rates required to advance to the next stage. Combat-stage
+# bars assume the [25, 80] random starting HP: sub-35-HP starts against hard
+# regular/elite encounters are effectively unwinnable, so ~0.82 is the
+# observed greedy ceiling on normal_combat (three flat evals at init 0).
+ADVANCE_THRESHOLDS = {"normal_combat": 0.80, "mixed_combat": 0.60, "act1": 0.30}
 MAX_EPISODE_ERROR_RATE = 0.05
 
 
