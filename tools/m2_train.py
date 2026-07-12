@@ -136,6 +136,10 @@ def main() -> int:
     parser.add_argument("--init-seed", type=int, default=0)
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--device", default="cpu", help="cpu / cuda / mps")
+    parser.add_argument("--record-train-every", type=int, default=10,
+                        help="record full train episodes every N iterations (0 disables)")
+    parser.add_argument("--record-train-episodes", type=int, default=8,
+                        help="max train episodes recorded per sampled iteration")
     args = parser.parse_args()
 
     if not os.environ.get("STS2_GAME_DIR"):
@@ -214,10 +218,13 @@ def main() -> int:
                     break
             start = time.perf_counter()
             records = collect_iteration(clients, stage, seeds, agent, config)
-            episode_writer.write_many(
-                records, iteration=iteration, stage=stage.name, split="train",
-                character="Ironclad",
-            )
+            # Full step-level records are large; sample train iterations so an
+            # 800-iteration run stays browsable without flooding the disk.
+            if args.record_train_every and iteration % args.record_train_every == 0:
+                episode_writer.write_many(
+                    records[: args.record_train_episodes], iteration=iteration,
+                    stage=stage.name, split="train", character="Ironclad",
+                )
             errors = sum(r.error is not None for r in records)
             if errors / max(len(records), 1) > MAX_EPISODE_ERROR_RATE:
                 for r in records:
