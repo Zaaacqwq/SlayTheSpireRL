@@ -17,8 +17,17 @@ from torch import Tensor
 from .observation import NormalizedObservation, normalize_state
 from .protocol import DECISIONS
 
-ENTITY_KINDS: tuple[str, ...] = ("card", "enemy", "relic", "potion", "choice", "option", "power", "event")
+ENTITY_KINDS: tuple[str, ...] = (
+    "card", "enemy", "relic", "potion", "choice", "option", "power", "event",
+    # Appended last so pre-deck checkpoints keep their type-embedding rows.
+    "deck_card",
+)
 _KIND_INDEX: Mapping[str, int] = {kind: index + 1 for index, kind in enumerate(ENTITY_KINDS)}
+
+# Kinds sharing another kind's id vocabulary: a Strike in the deck must hit the
+# same embedding as a Strike in hand, and candidate->entity slot matching stays
+# unambiguous because the kinds remain distinct.
+_VOCAB_KIND_ALIASES: Mapping[str, str] = {"deck_card": "card"}
 
 PHASES: tuple[str, ...] = tuple(sorted(DECISIONS))
 _PHASE_INDEX: Mapping[str, int] = {phase: index for index, phase in enumerate(PHASES)}
@@ -100,11 +109,14 @@ class EntityVocab:
 
     @classmethod
     def from_states(cls, states: Iterable[Mapping[str, Any]]) -> "EntityVocab":
-        entries: dict[str, dict[str, int]] = {kind: {} for kind in ENTITY_KINDS}
+        entries: dict[str, dict[str, int]] = {
+            kind: {} for kind in ENTITY_KINDS if kind not in _VOCAB_KIND_ALIASES
+        }
         next_index = 1
         for state in states:
             for entity in normalize_state(state).entities:
                 kind = str(entity.get("entity_type"))
+                kind = _VOCAB_KIND_ALIASES.get(kind, kind)
                 key = entity_key(entity)
                 if kind in entries and key != "UNK" and key not in entries[kind]:
                     entries[kind][key] = next_index
@@ -112,6 +124,7 @@ class EntityVocab:
         return cls(entries)
 
     def index(self, kind: str, key: str) -> int:
+        kind = _VOCAB_KIND_ALIASES.get(kind, kind)
         found = self.entries.get(kind, {}).get(key)
         if found is not None:
             return found

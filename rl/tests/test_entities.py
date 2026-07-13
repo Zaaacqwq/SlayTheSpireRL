@@ -218,3 +218,109 @@ def test_pointer_gather_changes_logits():
         with_gather, _ = model(torch.zeros(1, 12), entities, features, candidate_slots=slots)
         without_gather, _ = model(torch.zeros(1, 12), entities, features)
     assert not torch.allclose(with_gather, without_gather)
+
+
+CARD_REWARD_STATE = {
+    "type": "decision",
+    "decision": "card_reward",
+    "context": {"act": 1, "floor": 3, "room_type": "Monster"},
+    "cards": [
+        {"index": 0, "id": "CARD.PERFECTED_STRIKE", "name": "Perfected Strike",
+         "cost": 2, "type": "Attack", "stats": {"damage": 6}},
+        {"index": 1, "id": "CARD.DEFEND_IRONCLAD", "name": "Defend",
+         "cost": 1, "type": "Skill", "stats": {"block": 5}},
+    ],
+    "can_skip": True,
+    "player": {
+        "name": "The Ironclad", "hp": 60, "max_hp": 80, "gold": 120, "deck_size": 2,
+        "deck": [
+            {"id": "CARD.STRIKE_IRONCLAD", "name": "Strike", "cost": 1,
+             "type": "Attack", "stats": {"damage": 6}},
+            {"id": "CARD.BASH", "name": "Bash", "cost": 2,
+             "type": "Attack", "stats": {"damage": 8}},
+        ],
+    },
+}
+
+
+def test_deck_cards_become_entities_with_shared_card_vocab():
+    observation = normalize_state(CARD_REWARD_STATE)
+    deck_entities = [e for e in observation.entities if e["entity_type"] == "deck_card"]
+    assert [e["id"] for e in deck_entities] == ["CARD.STRIKE_IRONCLAD", "CARD.BASH"]
+
+    vocab = EntityVocab.from_states([COMBAT_STATE, CARD_REWARD_STATE])
+    # A Strike in the deck hits the same embedding row as a Strike in hand.
+    assert vocab.index("deck_card", "CARD.STRIKE_IRONCLAD") == vocab.index("card", "CARD.STRIKE_IRONCLAD")
+    assert "deck_card" not in vocab.entries
+
+    batch = encode_entity_batch([observation], vocab)
+    assert batch["entity_type"].shape[1] == len(observation.entities)
+    # Distinct type ids: offered cards vs deck cards.
+    from sts2rl.entities import _KIND_INDEX
+    types = batch["entity_type"][0].tolist()
+    assert _KIND_INDEX["deck_card"] in types and _KIND_INDEX["card"] in types
+
+
+def test_candidate_slots_ignore_deck_cards_with_same_id():
+    from sts2rl.entities import candidate_entity_slots
+    from sts2rl.protocol import ActionCandidate
+
+    state = dict(CARD_REWARD_STATE)
+    observation = normalize_state(state)
+    candidates = [
+        ActionCandidate("select_card_reward", {"card_index": 0}),
+        ActionCandidate("skip_card_reward", {}),
+    ]
+    slots = candidate_entity_slots(observation, candidates)
+    picked = observation.entities[slots[0]]
+    assert picked["entity_type"] == "card"
+    assert picked["id"] == "CARD.PERFECTED_STRIKE"
+    assert slots[1] == -1
+
+
+def test_states_without_deck_are_unchanged():
+    observation = normalize_state(COMBAT_STATE)
+    assert all(e["entity_type"] != "deck_card" for e in observation.entities)
+
+
+def test_checkpoint_migration_grows_type_embedding(tmp_path):
+    from sts2rl.checkpoint import load_checkpoint, save_checkpoint
+    from sts2rl.entities import ENTITY_KINDS
+    from sts2rl.model import EntityRecurrentPolicy
+
+    vocab = build_vocab()
+    model = EntityRecurrentPolicy(vocab_size=vocab.size, hidden=16, heads=2, layers=1)
+    optimizer = torch.optim.AdamW(model.parameters())
+    path = tmp_path / "old.pt"
+    save_checkpoint(path, model, optimizer, step=3, config={})
+
+    # Simulate a pre-deck checkpoint: one fewer entity kind in the table.
+    payload = torch.load(path)
+    payload["model"]["type_embed.weight"] = payload["model"]["type_embed.weight"][:-1].clone()
+    torch.save(payload, path)
+
+    fresh = EntityRecurrentPolicy(vocab_size=vocab.size, hidden=16, heads=2, layers=1)
+    fresh_optimizer = torch.optim.AdamW(fresh.parameters())
+    loaded = load_checkpoint(path, fresh, fresh_optimizer)
+    assert loaded["migrated_keys"] == ["type_embed.weight"]
+    assert loaded.get("optimizer_skipped") is True
+    table = fresh.state_dict()["type_embed.weight"]
+    assert table.shape[0] == len(ENTITY_KINDS) + 1
+    assert torch.all(table[-1] == 0)
+
+
+def test_checkpoint_same_shape_loads_optimizer(tmp_path):
+    from sts2rl.checkpoint import load_checkpoint, save_checkpoint
+    from sts2rl.model import EntityRecurrentPolicy
+
+    vocab = build_vocab()
+    model = EntityRecurrentPolicy(vocab_size=vocab.size, hidden=16, heads=2, layers=1)
+    optimizer = torch.optim.AdamW(model.parameters())
+    path = tmp_path / "same.pt"
+    save_checkpoint(path, model, optimizer, step=1, config={})
+
+    fresh = EntityRecurrentPolicy(vocab_size=vocab.size, hidden=16, heads=2, layers=1)
+    fresh_optimizer = torch.optim.AdamW(fresh.parameters())
+    loaded = load_checkpoint(path, fresh, fresh_optimizer)
+    assert loaded["migrated_keys"] == []
+    assert "optimizer_skipped" not in loaded

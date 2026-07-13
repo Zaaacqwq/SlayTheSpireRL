@@ -35,6 +35,9 @@ _ENTITY_GROUPS: tuple[tuple[str | None, str, str], ...] = (
     (None, "player_powers", "power"),
     ("player", "relics", "relic"),
     ("player", "potions", "potion"),
+    # Deck contents as first-class entities: card picks, removals and rest-site
+    # upgrades cannot condition on synergy when the deck is only a size scalar.
+    ("player", "deck", "deck_card"),
 )
 
 

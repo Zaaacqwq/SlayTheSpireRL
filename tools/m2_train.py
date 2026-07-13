@@ -34,7 +34,9 @@ from sts2rl.model import EntityRecurrentPolicy
 from sts2rl.ppo import PPOConfig, finalize_episode, ppo_update_epoch, run_episode
 from sts2rl.seeds import split_seed
 
-CLI_ROOT = REPO_ROOT / "external" / "sts2-cli"
+# STS2_CLI_ROOT lets a secondary checkout (e.g. a git worktree without the
+# built submodule) borrow the primary checkout's engine build.
+CLI_ROOT = Path(os.environ.get("STS2_CLI_ROOT", REPO_ROOT / "external" / "sts2-cli"))
 DLL = CLI_ROOT / "src" / "Sts2Headless" / "bin" / "Debug" / "net9.0" / "Sts2Headless.dll"
 VOCAB_PATH = REPO_ROOT / "rl" / "schema" / "m2_vocab.json"
 SPLIT_PATH = REPO_ROOT / "rl" / "seeds" / "m2_ironclad_seed_split.json"
@@ -135,6 +137,7 @@ def main() -> int:
     parser.add_argument("--init-seed", type=int, default=0)
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--device", default="cpu", help="cpu / cuda / mps")
+    parser.add_argument("--runs-root", type=Path, default=REPO_ROOT / "rl" / "runs")
     args = parser.parse_args()
 
     if not os.environ.get("STS2_GAME_DIR"):
@@ -162,7 +165,7 @@ def main() -> int:
     agent = (BatchedAgent(model, vocab, max_batch=max(args.workers, 2))
              if device.type != "cpu" else PolicyAgent(model, vocab))
 
-    run_dir = REPO_ROOT / "rl" / "runs" / args.run_name
+    run_dir = args.runs_root / args.run_name
     run_dir.mkdir(parents=True, exist_ok=True)
     logger = ExperimentLogger(run_dir / "tb")
     (run_dir / "config.json").write_text(json.dumps({
@@ -189,6 +192,9 @@ def main() -> int:
 
     if args.resume:
         payload = load_checkpoint(args.resume, model, optimizer)
+        if payload.get("migrated_keys"):
+            print(json.dumps({"resume_migrated": payload["migrated_keys"],
+                              "optimizer_reset": bool(payload.get("optimizer_skipped"))}))
         stage_index = int(payload["config"].get("stage_index", 0))
         iteration_start = int(payload["step"]) + 1
         seed_cursor = int(payload["config"].get("seed_cursor", 0))
