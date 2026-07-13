@@ -12,9 +12,12 @@ def save_checkpoint(path: Path, model, optimizer, *, step: int, config: dict, se
 def _migrate_state_dict(model, state: dict) -> list[str]:
     """Grow embedding tables saved before new entity kinds were appended.
 
-    New rows are zero-initialised: a zero type embedding contributes nothing
-    until training moves it, so a migrated model behaves exactly like the old
-    one on inputs that never mention the new kinds.
+    New rows are zero-initialised, which neutralises only the type-embedding
+    channel: entities of a new kind still reach attention through their id and
+    numeric projections. A migrated model is therefore identical on states
+    that contain no new-kind entities, but sees a distribution shift on states
+    that do — resuming across an observation change is a retraining event,
+    which is also why the stale Adam state is dropped.
     """
     migrated: list[str] = []
     current = model.state_dict()
