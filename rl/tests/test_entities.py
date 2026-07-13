@@ -324,3 +324,42 @@ def test_checkpoint_same_shape_loads_optimizer(tmp_path):
     loaded = load_checkpoint(path, fresh, fresh_optimizer)
     assert loaded["migrated_keys"] == []
     assert "optimizer_skipped" not in loaded
+
+
+# The Act 1 Waterfall Giant is reported "unkillable" with 999,999,999 HP. Scaled
+# by _HP_SCALE that is ~1e7, which the forward pass hides (the encoder's
+# LayerNorm renormalises) while the attention softmax gradient overflows to inf
+# and turns every entity-side grad into NaN — silently destroying the weights
+# one PPO step into boss_combat.
+SENTINEL_HP_STATE = {
+    **COMBAT_STATE,
+    "enemies": [
+        {
+            "index": 0, "id": "MONSTER.WATERFALL_GIANT", "name": "Waterfall Giant",
+            "hp": 999999999, "max_hp": 999999999, "block": 0,
+            "intents": [{"type": "Stun"}], "intends_attack": False, "powers": None,
+        }
+    ],
+}
+
+
+def test_entity_numeric_bounds_engine_sentinels():
+    from sts2rl.entities import _entity_numeric
+
+    features = _entity_numeric(SENTINEL_HP_STATE["enemies"][0])
+    assert len(features) == ENTITY_NUMERIC_DIM
+    # The bound is asserted against a literal, not against _FEATURE_LIMIT: raising
+    # the constant must not be able to quietly satisfy this test. Unbounded, hp
+    # alone lands at 1e7 here.
+    assert max(abs(value) for value in features) <= 10.0
+    # real content is untouched by the bound
+    ordinary = _entity_numeric(COMBAT_STATE["enemies"][0])
+    assert ordinary[0] == pytest.approx(0.55)
+    assert ordinary[1] == pytest.approx(0.55)
+
+
+def test_encode_entity_batch_bounds_the_tensor_fed_to_the_model():
+    vocab = EntityVocab.from_states([COMBAT_STATE, EVENT_STATE, SENTINEL_HP_STATE])
+    batch = encode_entity_batch([normalize_state(SENTINEL_HP_STATE)], vocab)
+    assert torch.isfinite(batch["entity_numeric"]).all()
+    assert float(batch["entity_numeric"].abs().max()) <= 10.0

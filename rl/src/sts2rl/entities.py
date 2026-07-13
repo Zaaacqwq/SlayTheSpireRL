@@ -40,6 +40,14 @@ ENTITY_NUMERIC_DIM = 13
 _HP_SCALE = 100.0
 _SMALL_SCALE = 10.0
 
+# The engine reports sentinel stats for scripted content — the Act 1 Waterfall
+# Giant is "unkillable" with 999,999,999 HP — which scale to ~1e7 here. The
+# forward pass hides it (the encoder's LayerNorm renormalises), but attention
+# scores then saturate and their softmax gradient overflows to inf, so backward
+# yields NaN grads and silently destroys the weights. Bound every field: no
+# legitimate value comes close, so this is a no-op on real content.
+_FEATURE_LIMIT = 10.0
+
 
 def phase_id(phase: str) -> int:
     return _PHASE_INDEX[phase]
@@ -68,13 +76,18 @@ def _entity_numeric(entity: Mapping[str, Any]) -> tuple[float, ...]:
         except (TypeError, ValueError):
             return 0.0
 
+    def bounded(value: float) -> float:
+        if value != value:  # NaN
+            return 0.0
+        return max(-_FEATURE_LIMIT, min(_FEATURE_LIMIT, value))
+
     stats = entity.get("stats") or {}
     stats = stats if isinstance(stats, Mapping) else {}
     intents = entity.get("intents") or []
     intent_damage = sum(
         number(intent.get("damage")) for intent in intents if isinstance(intent, Mapping)
     )
-    return (
+    return tuple(bounded(value) for value in (
         number(entity.get("hp")) / _HP_SCALE,
         number(entity.get("max_hp")) / _HP_SCALE,
         number(entity.get("block")) / _HP_SCALE,
@@ -88,7 +101,7 @@ def _entity_numeric(entity: Mapping[str, Any]) -> tuple[float, ...]:
         number(entity.get("index")) / _SMALL_SCALE,
         number(entity.get("col")) / _SMALL_SCALE,
         number(entity.get("row")) / _SMALL_SCALE,
-    )
+    ))
 
 
 @dataclass
