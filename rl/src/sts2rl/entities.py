@@ -21,13 +21,17 @@ ENTITY_KINDS: tuple[str, ...] = (
     "card", "enemy", "relic", "potion", "choice", "option", "power", "event",
     # Appended last so pre-deck checkpoints keep their type-embedding rows.
     "deck_card",
+    # Full-act map nodes (v6): route planning needs the whole graph, not only
+    # the immediately selectable choices.
+    "map_node",
 )
 _KIND_INDEX: Mapping[str, int] = {kind: index + 1 for index, kind in enumerate(ENTITY_KINDS)}
 
 # Kinds sharing another kind's id vocabulary: a Strike in the deck must hit the
 # same embedding as a Strike in hand, and candidate->entity slot matching stays
-# unambiguous because the kinds remain distinct.
-_VOCAB_KIND_ALIASES: Mapping[str, str] = {"deck_card": "card"}
+# unambiguous because the kinds remain distinct. Map nodes key on the same room
+# types (Monster/RestSite/Shop/...) already collected under "choice".
+_VOCAB_KIND_ALIASES: Mapping[str, str] = {"deck_card": "card", "map_node": "choice"}
 
 PHASES: tuple[str, ...] = tuple(sorted(DECISIONS))
 _PHASE_INDEX: Mapping[str, int] = {phase: index for index, phase in enumerate(PHASES)}
@@ -35,8 +39,9 @@ _PHASE_INDEX: Mapping[str, int] = {phase: index for index, phase in enumerate(PH
 UNK_INDEX = 0
 
 # hp, max_hp, block, cost, stat_damage, stat_block, upgraded, can_play,
-# intends_attack, intent_damage, index, col, row
-ENTITY_NUMERIC_DIM = 13
+# intends_attack, intent_damage, index, col, row,
+# visited, current, reachable, depth (map nodes; zero for every other kind)
+ENTITY_NUMERIC_DIM = 17
 _HP_SCALE = 100.0
 _SMALL_SCALE = 10.0
 
@@ -88,6 +93,10 @@ def _entity_numeric(entity: Mapping[str, Any]) -> tuple[float, ...]:
         number(entity.get("index")) / _SMALL_SCALE,
         number(entity.get("col")) / _SMALL_SCALE,
         number(entity.get("row")) / _SMALL_SCALE,
+        1.0 if entity.get("visited") else 0.0,
+        1.0 if entity.get("current") else 0.0,
+        1.0 if entity.get("reachable") else 0.0,
+        number(entity.get("depth")) / _SMALL_SCALE,
     )
 
 
@@ -185,11 +194,17 @@ def candidate_entity_slots(observation: NormalizedObservation, candidates) -> li
                     slot = row
                     break
         elif candidate.action == "select_map_node":
-            for row, entity in enumerate(observation.entities):
-                if (entity.get("entity_type") == "choice"
-                        and entity.get("col") == args.get("col")
-                        and entity.get("row") == args.get("row")):
-                    slot = row
+            # Prefer the full-map twin of the node: it carries reachability and
+            # path context the bare choice entity lacks; without a map (older
+            # fixtures, stripped observations) fall back to the choice row.
+            for wanted_kind in ("map_node", "choice"):
+                for row, entity in enumerate(observation.entities):
+                    if (entity.get("entity_type") == wanted_kind
+                            and entity.get("col") == args.get("col")
+                            and entity.get("row") == args.get("row")):
+                        slot = row
+                        break
+                if slot >= 0:
                     break
         slots.append(slot)
     return slots

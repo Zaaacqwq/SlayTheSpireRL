@@ -14,7 +14,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / 'rl' / 'src'))
 from sts2rl.engine import EngineClient, RunConfig
 
-ROOT = REPO_ROOT / 'external' / 'sts2-cli'
+# STS2_CLI_ROOT lets a secondary checkout (e.g. a git worktree without the
+# built submodule) borrow the primary checkout's engine build.
+ROOT = Path(os.environ.get('STS2_CLI_ROOT', REPO_ROOT / 'external' / 'sts2-cli'))
 DOTNET = os.environ.get('DOTNET_HOST_PATH') or shutil.which('dotnet')
 if not DOTNET:
     raise SystemExit('dotnet not found (set DOTNET_HOST_PATH)')

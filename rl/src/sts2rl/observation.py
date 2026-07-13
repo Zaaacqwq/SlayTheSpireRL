@@ -20,6 +20,7 @@ _KNOWN_FIELDS = frozenset({
     "event_id", "event_name", "description",
     "relics", "potions", "card_removal_cost", "can_remove_card",
     "min_select", "max_select", "victory", "score", "message",
+    "map",
 })
 
 # (container, field, entity kind); ``None`` container means the state root.
@@ -39,6 +40,64 @@ _ENTITY_GROUPS: tuple[tuple[str | None, str, str], ...] = (
     # upgrades cannot condition on synergy when the deck is only a size scalar.
     ("player", "deck", "deck_card"),
 )
+
+
+def _map_node_entities(map_payload: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Flatten the full-act map into annotated ``map_node`` entities.
+
+    Reachability and depth are computed from the current position over the
+    ``children`` edges: roots are the current node's children (or the first
+    row at act start), depth counts moves from the current position. Nodes
+    behind or on abandoned branches stay ``reachable=0, depth=0`` — the
+    ``visited`` flag is what distinguishes the walked path.
+    """
+    nodes: list[dict[str, Any]] = []
+    for row_nodes in map_payload.get("rows") or []:
+        if isinstance(row_nodes, list):
+            nodes.extend(dict(node) for node in row_nodes if isinstance(node, Mapping))
+    boss = map_payload.get("boss")
+    if isinstance(boss, Mapping):
+        boss_node = dict(boss)
+        # entity_key checks id/name before type; the boss's monster id and
+        # localized name must not shadow its room-type vocabulary key.
+        boss_node["boss_id"] = boss_node.pop("id", None)
+        boss_node["boss_name"] = boss_node.pop("name", None)
+        nodes.append(boss_node)
+
+    by_coord = {(node.get("col"), node.get("row")): node for node in nodes}
+    current = next((node for node in nodes if node.get("current")), None)
+    if current is not None:
+        frontier = [(child.get("col"), child.get("row"))
+                    for child in current.get("children") or [] if isinstance(child, Mapping)]
+    else:
+        first_row = min((node.get("row") for node in nodes if node.get("row") is not None), default=None)
+        frontier = [coord for coord, node in by_coord.items() if node.get("row") == first_row]
+
+    depth = 1
+    seen: set[tuple[Any, Any]] = set()
+    while frontier:
+        next_frontier: list[tuple[Any, Any]] = []
+        for coord in frontier:
+            node = by_coord.get(coord)
+            if node is None or coord in seen:
+                continue
+            seen.add(coord)
+            node["reachable"] = True
+            node["depth"] = depth
+            next_frontier.extend(
+                (child.get("col"), child.get("row"))
+                for child in node.get("children") or [] if isinstance(child, Mapping)
+            )
+        frontier = next_frontier
+        depth += 1
+
+    for node in nodes:
+        node.setdefault("reachable", False)
+        node.setdefault("depth", 0)
+        node.pop("children", None)
+        node["entity_type"] = "map_node"
+        node["id"] = node.get("id", UNK_ID)
+    return nodes
 
 
 @dataclass(frozen=True)
@@ -81,6 +140,9 @@ def normalize_state(state: Mapping[str, Any]) -> NormalizedObservation:
                 entity["entity_type"] = kind
                 entity["id"] = entity.get("id", UNK_ID)
                 entities.append(entity)
+    map_payload = state.get("map")
+    if isinstance(map_payload, Mapping):
+        entities.extend(_map_node_entities(map_payload))
     return NormalizedObservation(
         str(state.get("decision", state.get("type", "unknown"))),
         global_features, tuple(entities), dict(state), warnings,

@@ -190,17 +190,34 @@ class EngineClient:
             raise EngineFatal(exc.code, detail) from exc
         return response
 
+    def _with_map(self, raw: dict[str, Any]) -> dict[str, Any]:
+        """Attach the full act map to map_select states (v6 route observation).
+
+        get_map is a read-only query and map decisions occur at most once per
+        floor, so the extra round trip is negligible. Failures propagate: a
+        map_select state without an available map is an engine defect.
+        """
+        if raw.get("decision") != "map_select":
+            return raw
+        command = {"cmd": "get_map"}
+        self.trace.append(command)
+        payload = self._request(command)
+        if payload.get("type") != "map" or "rows" not in payload:
+            raise EngineError(f"unexpected get_map response: {payload!r}")
+        raw = dict(raw)
+        raw["map"] = {key: payload.get(key) for key in ("rows", "boss", "current_coord")}
+        return raw
+
     def reset(self, config: RunConfig) -> DecisionState:
         # start_run is expected to fully replace the previous run; M0 must verify this upstream.
         command = {"cmd": "start_run", "character": config.character, "seed": config.seed, "ascension": config.ascension, "lang": config.lang}
         self.trace = [command]
-        raw = self._request(command)
-        return parse_state(raw)
+        return parse_state(self._with_map(self._request(command)))
 
     def reset_combat(self, config: CombatConfig) -> DecisionState:
         command = config.command()
         self.trace = [command]
-        return parse_state(self._request(command))
+        return parse_state(self._with_map(self._request(command)))
 
     def list_models(self, kind: str) -> list[dict[str, Any]]:
         command = {"cmd": "list_models", "kind": kind}
@@ -214,7 +231,7 @@ class EngineClient:
         try:
             command = action.command()
             self.trace.append(command)
-            state = parse_state(self._request(command))
+            state = parse_state(self._with_map(self._request(command)))
             return StepResult(state, state.phase == "game_over")
         except EngineError:
             self._kill()
