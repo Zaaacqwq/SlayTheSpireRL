@@ -2,7 +2,7 @@
 
 更新日期：2026-07-13
 
-M0、M1 已完成（M1 验收记录见 git 历史 `8d6bf01` 时点的本文件；关键锚点：主仓库 `c22d4af`、CLI fork `7fe000619930a199ab1cfccdbde727a0b30613af`、1,000 局 A0 零错误、跨进程 resume 参数 hash 一致）。M2 于 2026-07-11 开始。
+M0、M1 已完成。**完整历史（M / P / v 三级，含 M0、M1 的验收证据）见 [`timeline.md`](timeline.md)。** M1 的原始文档见 `git show bbc48db:plan/rl_v2_current_stage.md`（**此前引用的 `8d6bf01` 在本分支历史中不存在，是坏引用**）。关键锚点：主仓库 `c22d4af`、CLI fork `7fe0006`、1,000 局 A0 零错误、跨进程 resume 参数 hash 一致。M2 于 2026-07-11 开始。
 
 ## M2 验收门槛（roadmap 权威定义）
 
