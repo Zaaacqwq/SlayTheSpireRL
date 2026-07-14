@@ -155,6 +155,22 @@ def test_ppo_update_epoch_raises_probability_of_advantaged_action():
     assert all(torch.isfinite(torch.tensor(v)) for v in stats.values())
 
 
+def test_length_aware_batches_use_every_step_once_and_pack_similar_states():
+    from sts2rl.ppo import _length_aware_batches
+
+    candidates = (ActionCandidate("end_turn", {}),)
+    steps = []
+    for size in range(1, 9):
+        state = {
+            "decision": "combat_play", "player": {},
+            "hand": [{"index": i, "id": f"CARD.{i}"} for i in range(size)],
+        }
+        steps.append(StoredStep(state, candidates, 0, 0.0, 0.0, 0.0, None))
+    batches = _length_aware_batches(steps, 2, torch.Generator().manual_seed(7))
+    assert sorted(index for batch in batches for index in batch) == list(range(8))
+    assert all(max(batch) - min(batch) == 1 for batch in batches)
+
+
 def test_combat_starting_hp_is_deterministic_and_bounded():
     from sts2rl.curriculum import COMBAT_HP_RANGE, sample_starting_hp
     stage = ironclad_stages(CATALOG)[0]

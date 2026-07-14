@@ -287,6 +287,38 @@ def encode_update_batch(steps: Sequence[StoredStep], vocab: EntityVocab, hidden_
     }
 
 
+def _length_aware_batches(
+    steps: Sequence[StoredStep], minibatch_size: int,
+    generator: torch.Generator | None = None,
+) -> list[list[int]]:
+    """Shuffle once, then batch similarly-sized observations together.
+
+    Full map states carry roughly an order of magnitude more entity tokens than
+    ordinary combat states. Random mixing pads every sample to the map width and
+    wastes quadratic Transformer attention. Batch and row order remain random;
+    only padding-compatible samples are packed together.
+    """
+    if minibatch_size <= 0:
+        raise ValueError("minibatch_size must be positive")
+    if not steps:
+        return []
+    shuffled = torch.randperm(len(steps), generator=generator).tolist()
+    shuffled.sort(key=lambda index: (
+        len(normalize_state(steps[index].raw_state).entities),
+        len(steps[index].candidates),
+    ))
+    batches = [
+        shuffled[start:start + minibatch_size]
+        for start in range(0, len(shuffled), minibatch_size)
+    ]
+    result: list[list[int]] = []
+    for batch_index in torch.randperm(len(batches), generator=generator).tolist():
+        batch = batches[batch_index]
+        within = torch.randperm(len(batch), generator=generator).tolist()
+        result.append([batch[index] for index in within])
+    return result
+
+
 def ppo_update_epoch(
     model, optimizer, records: Sequence[EpisodeRecord], vocab: EntityVocab, config: PPOConfig,
     *, generator: torch.Generator | None = None,
@@ -312,15 +344,13 @@ def ppo_update_epoch(
     device = next(model.parameters()).device
     advantage_tensor = advantage_tensor.to(device)
     return_tensor = return_tensor.to(device)
-    order = torch.randperm(len(steps), generator=generator)
     totals = {
         "loss": 0.0, "policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0,
         "approx_kl": 0.0, "clip_fraction": 0.0, "grad_norm": 0.0,
         "grad_norm_clipped": 0.0, "explained_variance": 0.0,
     }
     batches = 0
-    for start in range(0, len(steps), config.minibatch_size):
-        chosen = order[start:start + config.minibatch_size].tolist()
+    for chosen in _length_aware_batches(steps, config.minibatch_size, generator):
         batch = encode_update_batch([steps[i] for i in chosen], vocab, model.hidden_size)
         batch = {
             key: ({k: v.to(device) for k, v in value.items()}
