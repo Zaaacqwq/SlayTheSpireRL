@@ -146,6 +146,11 @@ def run_episode(
     episode = episode_config(stage, seed, character=character, ascension=ascension)
     steps: list[StoredStep] = []
     state: DecisionState | None = None
+    # Telemetry, not reward: the deepest floor reached, not the floor of the terminal
+    # state. The state after an act completion carries no floor, so a win used to be
+    # recorded as floor 0 — dragging avg_floor *down* for every episode actually won.
+    # Defined before the try so a failing reset cannot leave it unbound.
+    deepest_floor = 0.0
     _emit_live(live_callback, {
         "type": "episode_start", "status": "starting", "episode_id": seed,
         "seed": seed, "step": 0,
@@ -157,7 +162,9 @@ def run_episode(
             state = client.reset(episode)
         hidden: tuple[float, ...] | None = None
         previous_floor = _floor(state)
+        deepest_floor = previous_floor
         while True:
+            deepest_floor = max(deepest_floor, _floor(state))
             outcome, done = _terminal_outcome(stage, state)
             if done:
                 if steps:
@@ -167,14 +174,14 @@ def run_episode(
                     "seed": seed, "step": len(steps), "outcome": outcome,
                     **_state_summary(state),
                 })
-                return EpisodeRecord(seed, steps, outcome, truncated=False, final_floor=_floor(state))
+                return EpisodeRecord(seed, steps, outcome, truncated=False, final_floor=deepest_floor)
             if len(steps) >= config.max_episode_steps:
                 _emit_live(live_callback, {
                     "type": "episode_end", "status": "truncated", "episode_id": seed,
                     "seed": seed, "step": len(steps), "outcome": None,
                     **_state_summary(state),
                 })
-                return EpisodeRecord(seed, steps, None, truncated=True, final_floor=_floor(state))
+                return EpisodeRecord(seed, steps, None, truncated=True, final_floor=deepest_floor)
             if inference_lock:
                 with inference_lock:
                     step = agent.act(state.raw, state.candidates, hidden, greedy=greedy)
@@ -184,7 +191,17 @@ def run_episode(
             result = client.step(action)
             reward = 0.0
             if config.floor_shaping and not stage.is_combat:
-                new_floor = _floor(result.state)
+                # Potential-based shaping is policy-invariant only when EVERY terminal
+                # state has potential zero. The engine drops `floor` from the state that
+                # follows an act completion, so a win already had Phi = 0 — but a death
+                # lands on `game_over`, which still carries `floor`, leaving
+                # Phi = 0.2*floor. That asymmetry handed each deep death a ~+2.9 shaped
+                # bonus that no win could earn, and made dying at the boss (mean return
+                # +1.76) strictly better than beating it (+0.65). Every one of nine deep
+                # deaths outscored every win. The policy was faithfully learning the
+                # objective we gave it: walk to the boss, then die.
+                _, next_done = _terminal_outcome(stage, result.state)
+                new_floor = 0.0 if next_done else _floor(result.state)
                 reward += 0.2 * (config.gamma * new_floor - previous_floor)
                 previous_floor = new_floor
             steps.append(StoredStep(
@@ -207,7 +224,7 @@ def run_episode(
             "seed": seed, "step": len(steps), "error": type(exc).__name__, **summary,
         })
         return EpisodeRecord(seed, steps, None, truncated=False, error=type(exc).__name__,
-                             final_floor=_floor(state) if state is not None else 0.0)
+                             final_floor=deepest_floor)
 
 
 def _terminal_outcome(stage: CurriculumStage, state: DecisionState) -> tuple[bool | None, bool]:

@@ -235,3 +235,74 @@ def test_boss_replay_split_holds_out_a_slice_for_the_boss_stage():
     assert boss_replay_split(seeds, 0.0) == ([], seeds)
     with pytest.raises(ValueError):
         boss_replay_split(seeds, 1.0)
+
+
+# The reward function used to teach the policy to walk to the boss and die.
+# Potential-based shaping is policy-invariant only when EVERY terminal state has
+# potential zero. The engine drops `floor` from the state that follows an act
+# completion, so a WIN already had Phi = 0 — but a death lands on `game_over`,
+# which still carries `floor`, leaving Phi = 0.2*floor. Measured on the real
+# engine with v5's ckpt_00529: mean discounted return was +1.76 for a deep death
+# and only +0.65 for a win, and all nine deep deaths outscored both wins.
+def _run_stage():
+    return CurriculumStage("act1", max_act=1)
+
+
+def _scripted_run(final: DecisionState, floors=(1, 8, 17)):
+    """A run that climbs `floors`, then lands on `final` (a win or a game_over)."""
+    from sts2rl.agent import AgentStep
+
+    action = ActionCandidate("select_map_node", {"col": 0, "row": 0})
+    states = [
+        DecisionState({"decision": "map_select", "context": {"act": 1, "floor": f}},
+                      (action,))
+        for f in floors
+    ]
+
+    class Client:
+        def __init__(self):
+            self.i = 0
+
+        def reset(self, _config):
+            return states[0]
+
+        def step(self, _action):
+            self.i += 1
+            nxt = states[self.i] if self.i < len(states) else final
+            return StepResult(nxt, terminated=False)
+
+    class Agent:
+        def act(self, *_args, **_kwargs):
+            return AgentStep(0, -0.2, 0.4, None)
+
+    return run_episode(Client(), _run_stage(), "seed-x", Agent(), PPOConfig())
+
+
+def _discounted(record, gamma=PPOConfig().gamma):
+    return sum((gamma ** i) * s.reward for i, s in enumerate(record.steps))
+
+
+def test_winning_an_act_out_returns_dying_deep():
+    # a win: the act advances, and the engine emits no floor on that state
+    win = DecisionState({"decision": "map_select", "context": {"act": 2}}, ())
+    # a death at the same depth: game_over still carries the floor
+    death = DecisionState(
+        {"decision": "game_over", "victory": False, "act": 1, "floor": 17}, ()
+    )
+    won = _scripted_run(win)
+    died = _scripted_run(death)
+
+    assert won.outcome is True and died.outcome is False
+    assert _discounted(won) > _discounted(died), (
+        f"dying ({_discounted(died):+.2f}) must not out-return winning "
+        f"({_discounted(won):+.2f})"
+    )
+
+
+def test_a_win_is_recorded_at_the_deepest_floor_not_the_terminal_floor():
+    # The act-2 state has no floor; recording it as the final floor logged every
+    # win as floor 0 and dragged avg_floor down.
+    win = DecisionState({"decision": "map_select", "context": {"act": 2}}, ())
+    record = _scripted_run(win, floors=(1, 8, 17))
+    assert record.outcome is True
+    assert record.final_floor == 17
