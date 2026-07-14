@@ -17,6 +17,8 @@ from tools.rl_dashboard import (
     load_eval_summary,
     load_history_for_run,
     list_episodes,
+    live_worker_events,
+    live_workers,
     run_metrics,
     run_summary,
     run_timeline,
@@ -214,6 +216,47 @@ def test_live_run_api_reads_manifest_and_pivots_scalars(tmp_path: Path) -> None:
     assert summary["stats"]["win_rate"] == 1.0
     assert summary["stats"]["avg_reward"] == 1.4
     assert episodes["total"] == 1
+
+
+def test_live_worker_snapshot_and_incremental_events(tmp_path: Path) -> None:
+    root = tmp_path / "runs"
+    run = root / "live_run"
+    live = run / "live"
+    live.mkdir(parents=True)
+    (run / "config.json").write_text('{"workers": 2}', encoding="utf-8")
+    snapshot = {
+        "enabled": True, "session_id": "session-a", "updated_at": "now",
+        "worker_count": 2, "dropped_events": 3,
+        "workers": [{"worker_id": 0, "status": "running", "seq": 3},
+                    {"worker_id": 1, "status": "idle", "seq": 0}],
+    }
+    (live / "workers.json").write_text(json.dumps(snapshot), encoding="utf-8")
+    write_jsonl(live / "worker_00.jsonl", [
+        {"session_id": "old", "worker_id": 0, "seq": 99, "type": "action"},
+        {"session_id": "session-a", "worker_id": 0, "seq": 1, "type": "episode_start"},
+        {"session_id": "session-a", "worker_id": 0, "seq": 2, "type": "action"},
+        {"session_id": "session-a", "worker_id": 0, "seq": 3, "type": "action"},
+    ])
+
+    workers = live_workers(root, "live_run")
+    assert workers["enabled"] is True
+    assert workers["workers"][0]["status"] == "running"
+    events = live_worker_events(root, "live_run", 0, after=1)
+    assert [row["seq"] for row in events["items"]] == [2, 3]
+    assert events["next_after"] == 3
+    assert events["dropped_events"] == 3
+
+
+def test_live_worker_api_is_disabled_for_legacy_run(tmp_path: Path) -> None:
+    root = tmp_path / "runs"
+    run = root / "old_run"
+    run.mkdir(parents=True)
+    (run / "config.json").write_text('{"workers": 12}', encoding="utf-8")
+    payload = live_workers(root, "old_run")
+    assert payload == {
+        "enabled": False, "session_id": None, "updated_at": None,
+        "worker_count": 12, "dropped_events": 0, "stale": False, "workers": [],
+    }
 
 
 def make_replay_run(root: Path) -> Path:

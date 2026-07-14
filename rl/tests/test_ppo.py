@@ -14,8 +14,8 @@ from sts2rl.curriculum import (
 from sts2rl.engine import CombatConfig, RunConfig
 from sts2rl.entities import EntityVocab
 from sts2rl.model import EntityRecurrentPolicy
-from sts2rl.ppo import EpisodeRecord, PPOConfig, StoredStep, finalize_episode, ppo_update_epoch
-from sts2rl.protocol import ActionCandidate
+from sts2rl.ppo import EpisodeRecord, PPOConfig, StoredStep, finalize_episode, ppo_update_epoch, run_episode
+from sts2rl.protocol import ActionCandidate, DecisionState, StepResult
 
 CATALOG = [
     {"id": "W1", "act": 1, "category": "weak"},
@@ -68,6 +68,37 @@ def test_finalize_episode_terminal_and_truncated_differ():
     # the truncated episode bootstraps V(last) instead of treating it as death
     assert terminal.advantages != truncated.advantages
     assert len(terminal.returns) == 2
+
+
+def test_run_episode_emits_compact_live_events_without_affecting_record():
+    from sts2rl.agent import AgentStep
+
+    action = ActionCandidate("play_card", {"card_index": 0, "target_index": 0})
+    combat = DecisionState({
+        "decision": "combat_play", "context": {"act": 1, "floor": 1, "round": 2},
+        "player": {"hp": 70, "max_hp": 80, "energy": 3},
+        "hand": [{"index": 0, "name": "Bash"}],
+        "enemies": [{"index": 0, "name": "Jaw Worm"}],
+    }, (action,))
+    reward = DecisionState({"decision": "card_reward", "context": {"act": 1, "floor": 1}}, ())
+
+    class Client:
+        def reset_combat(self, _config): return combat
+        def step(self, _action): return StepResult(reward, terminated=False)
+
+    class Agent:
+        def act(self, *_args, **_kwargs): return AgentStep(0, -0.2, 0.4, None)
+
+    events = []
+    record = run_episode(
+        Client(), CurriculumStage("normal_combat", ("W1",)), "seed-live",
+        Agent(), PPOConfig(), live_callback=events.append,
+    )
+    assert record.outcome is True and len(record.steps) == 1
+    assert [event["type"] for event in events] == ["episode_start", "action", "episode_end"]
+    assert events[1]["selected_label"] == "Bash"
+    assert events[1]["action"] == action.command()
+    assert events[1]["floor"] == 1.0 and events[1]["round"] == 2
 
 
 def test_ppo_update_epoch_raises_probability_of_advantaged_action():

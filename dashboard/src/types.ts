@@ -87,3 +87,51 @@ export interface ReplayStep {
   player_powers?: any[]
   state?: Record<string, unknown>
 }
+
+export interface LiveWorker {
+  worker_id: number
+  status: string
+  seq: number
+  updated_at: string
+  timestamp?: string
+  iteration?: number
+  stage?: string
+  split?: string
+  episode_id?: string
+  seed?: string
+  step?: number
+  phase?: string
+  act?: number
+  floor?: number
+  round?: number | null
+  hp?: number | null
+  max_hp?: number | null
+  energy?: number | null
+  action?: { cmd?: string; action?: string; args?: Record<string, unknown> }
+  selected_label?: string | null
+  target?: number | null
+  reward?: number
+  value?: number
+  logp?: number
+  outcome?: boolean | null
+  error?: string | null
+  action_rate?: number
+}
+
+export interface LiveSnapshot {
+  enabled: boolean
+  session_id: string | null
+  updated_at: string | null
+  worker_count: number
+  dropped_events: number
+  action_rate?: number
+  stale: boolean
+  age_seconds?: number
+  workers: LiveWorker[]
+}
+
+export type LiveEvent = LiveWorker & {
+  session_id: string
+  timestamp: string
+  type: 'status' | 'episode_start' | 'action' | 'episode_end' | 'episode_error'
+}

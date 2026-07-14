@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
-import { BarChart3, BookOpen, RefreshCw, Route } from 'lucide-react'
+import { BarChart3, BookOpen, Languages, Radio, RefreshCw, Route } from 'lucide-react'
 import { fetchRuns } from './api'
 import type { Episode, Run } from './types'
 import { Overview } from './views/Overview'
 import { EMPTY_FILTERS, Episodes, type EpisodeFilters } from './views/Episodes'
 import { Replay, type ReplayTarget } from './views/Replay'
+import { Live } from './views/Live'
+import { useI18n } from './i18n'
 
-type Tab = 'overview' | 'episodes' | 'replay'
+type Tab = 'overview' | 'episodes' | 'replay' | 'live'
 
 const LEGACY_RUN = (episodeCount: number): Run => ({
   name: 'legacy', config: {}, history_count: 0, episode_count: episodeCount, checkpoints: 0,
@@ -15,13 +17,8 @@ const LEGACY_RUN = (episodeCount: number): Run => ({
   availability: { metrics: false, episodes: true },
 })
 
-const TAB_TITLES: Record<Tab, [string, string]> = {
-  overview: ['训练总览', '学习曲线、课程阶段与已录对局'],
-  episodes: ['对局档案', '每一局的结果、路线与数据'],
-  replay: ['对局复盘', '逐步回放：卡池、选择与战斗过程'],
-}
-
 export default function App() {
+  const { t, locale, setLocale } = useI18n()
   const [runs, setRuns] = useState<Run[]>([])
   const [runName, setRunName] = useState('')
   const [tab, setTab] = useState<Tab>('overview')
@@ -53,7 +50,8 @@ export default function App() {
   const run = runs.find(item => item.name === runName)
   const trainingRuns = runs.filter(item => item.name !== 'legacy')
   const legacy = runs.find(item => item.name === 'legacy')
-  const [title, subtitle] = TAB_TITLES[tab]
+  const title = t(`title.${tab}`)
+  const subtitle = t(`sub.${tab}`)
 
   const selectRun = (name: string) => {
     setRunName(name)
@@ -76,39 +74,45 @@ export default function App() {
       <aside className="rail">
         <div className="brand">
           <div className="brand-mark">尖</div>
-          <div><b>尖塔 RL</b><span>训练观测台</span></div>
+          <div><b>{t('brand.name')}</b><span>{t('brand.subtitle')}</span></div>
         </div>
         <nav>
           <button className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}>
-            <BarChart3 />训练总览
+            <BarChart3 />{t('nav.overview')}
           </button>
           <button className={tab === 'episodes' ? 'active' : ''} onClick={() => setTab('episodes')}>
-            <BookOpen />对局档案
+            <BookOpen />{t('nav.episodes')}
           </button>
           <button className={tab === 'replay' ? 'active' : ''} onClick={() => setTab('replay')}>
-            <Route />对局复盘
+            <Route />{t('nav.replay')}
+          </button>
+          <button className={tab === 'live' ? 'active' : ''} onClick={() => setTab('live')}>
+            <Radio />{t('nav.live')}
           </button>
         </nav>
         <div className="run-picker">
-          <label>训练实验</label>
+          <label>{t('run.label')}</label>
           <select value={runName} onChange={event => selectRun(event.target.value)}>
-            <optgroup label="训练实验">
+            <optgroup label={t('run.group')}>
               {trainingRuns.map(item => (
                 <option key={item.name} value={item.name}>
-                  {item.name}{item.episode_count ? ` · ${item.episode_count}局` : ''}
+                  {item.name}{item.episode_count ? ` · ${t('episodes.count', { count: item.episode_count })}` : ''}
                 </option>
               ))}
             </optgroup>
             {legacy && (
-              <optgroup label="历史轨迹">
-                <option value="legacy">legacy · {legacy.episode_count} 局</option>
+              <optgroup label={t('run.legacy')}>
+                <option value="legacy">legacy · {t('episodes.count', { count: legacy.episode_count })}</option>
               </optgroup>
             )}
           </select>
         </div>
         <div className="rail-foot">
-          <span className="live-dot" />每 5 秒自动刷新<br />
-          <small>{updated ? `已同步 ${updated.toLocaleTimeString()}` : '连接中…'}</small>
+          <button className="locale-toggle" onClick={() => setLocale(locale === 'zh-CN' ? 'en-US' : 'zh-CN')}>
+            <Languages />{locale === 'zh-CN' ? 'EN' : '中文'}
+          </button>
+          <span className="live-dot" />{t('common.autoRefresh')}<br />
+          <small>{updated ? t('common.updated', { time: updated.toLocaleTimeString(locale) }) : t('common.connecting')}</small>
         </div>
       </aside>
 
@@ -116,18 +120,20 @@ export default function App() {
         <div className="view-head">
           <div><h1>{title}</h1><p>{run ? `${run.name} · ${subtitle}` : subtitle}</p></div>
           <button className="ckpt-chip" onClick={() => void refresh()}>
-            <RefreshCw style={{ width: 13, height: 13, verticalAlign: -2, marginRight: 6 }} />刷新
+            <RefreshCw style={{ width: 13, height: 13, verticalAlign: -2, marginRight: 6 }} />{t('common.refresh')}
           </button>
         </div>
         {error && <div className="error-banner">{error}</div>}
         {!run ? (
-          <div className="empty">未发现训练记录：确认 rl/runs 下有实验目录</div>
+          <div className="empty">{t('run.notFound')}</div>
         ) : tab === 'overview' ? (
           <Overview run={run} onInspectIteration={inspectIteration} />
         ) : tab === 'episodes' ? (
           <Episodes run={run} filters={filters} onFilters={setFilters} onOpen={openEpisode} />
-        ) : (
+        ) : tab === 'replay' ? (
           <Replay run={run} target={replayTarget} onTarget={setReplayTarget} />
+        ) : (
+          <Live run={run} />
         )}
       </main>
     </div>

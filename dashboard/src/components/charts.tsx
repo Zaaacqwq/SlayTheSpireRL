@@ -2,6 +2,8 @@ import { CartesianGrid, Line, LineChart, ReferenceArea, ResponsiveContainer, Too
 import type { MetricRow } from '../types'
 import { num, pct, stageLabel, stageTint } from '../format'
 import { Empty } from './ui'
+import { InfoTip } from './ui'
+import { useI18n } from '../i18n'
 
 /* Chart chrome (dataviz dark tokens). SVG attributes need literal colors. */
 const INK_MUTED = '#898781'
@@ -59,7 +61,8 @@ function MetricChart({ rows, segments, series, height, percent = false }: {
   rows: MetricRow[]; segments: StageSegment[]; series: SeriesSpec[]
   height: number; percent?: boolean
 }) {
-  if (!rows.length) return <Empty text="暂无训练指标" />
+  const { t } = useI18n()
+  if (!rows.length) return <Empty text={t('chart.noMetrics')} />
   return <>
     <div className="legend-row">
       {series.map(spec => <span key={spec.key}><i style={{ background: spec.color }} />{spec.name}</span>)}
@@ -78,7 +81,7 @@ function MetricChart({ rows, segments, series, height, percent = false }: {
         />
         <Tooltip
           contentStyle={TOOLTIP_STYLE}
-          labelFormatter={iteration => `迭代 ${iteration}`}
+          labelFormatter={iteration => t('common.iteration', { value: String(iteration) })}
           formatter={(value, name) => [percent ? pct(value) : num(value, 3), String(name)]}
         />
         {series.map(spec => (
@@ -91,23 +94,26 @@ function MetricChart({ rows, segments, series, height, percent = false }: {
 }
 
 export function WinRateChart({ rows, segments }: { rows: MetricRow[]; segments: StageSegment[] }) {
+  const { t } = useI18n()
   return <MetricChart rows={rows} segments={segments} height={260} percent series={[
-    { key: 'train_win_rate', name: '训练胜率', color: SERIES.blue },
-    { key: 'dev_win_rate', name: '验证胜率', color: SERIES.aqua },
+    { key: 'train_win_rate', name: t('chart.trainWin'), color: SERIES.blue },
+    { key: 'dev_win_rate', name: t('chart.devWin'), color: SERIES.aqua },
   ]} />
 }
 
 export function FloorChart({ rows, segments }: { rows: MetricRow[]; segments: StageSegment[] }) {
+  const { t } = useI18n()
   return <MetricChart rows={rows} segments={segments} height={150} series={[
-    { key: 'avg_floor', name: '平均到达楼层', color: SERIES.yellow },
-    { key: 'dev_avg_floor', name: '验证平均楼层', color: SERIES.violet },
+    { key: 'avg_floor', name: t('chart.avgFloor'), color: SERIES.yellow },
+    { key: 'dev_avg_floor', name: t('chart.devFloor'), color: SERIES.violet },
   ]} />
 }
 
-export function MiniChart({ rows, dataKey, title }: { rows: MetricRow[]; dataKey: string; title: string }) {
+export function MiniChart({ rows, dataKey, title, tip }: { rows: MetricRow[]; dataKey: string; title: string; tip?: string }) {
+  const { t } = useI18n()
   return (
     <div className="panel">
-      <div className="panel-title"><h2>{title}</h2></div>
+      <div className="panel-title"><h2>{title}</h2>{tip && <InfoTip text={tip} />}</div>
       {rows.length ? (
         <ResponsiveContainer width="100%" height={110}>
           <LineChart data={rows} margin={{ top: 4, right: 8, bottom: 0, left: -14 }}>
@@ -118,18 +124,19 @@ export function MiniChart({ rows, dataKey, title }: { rows: MetricRow[]; dataKey
             <YAxis stroke={INK_MUTED} tickLine={false} axisLine={false} fontSize={10} />
             <Tooltip
               contentStyle={TOOLTIP_STYLE}
-              labelFormatter={iteration => `迭代 ${iteration}`}
+              labelFormatter={iteration => t('common.iteration', { value: String(iteration) })}
               formatter={value => [num(value, 4), title]}
             />
             <Line type="monotone" dataKey={dataKey} stroke={SERIES.blue} strokeWidth={1.5} dot={false} isAnimationActive={false} />
           </LineChart>
         </ResponsiveContainer>
-      ) : <Empty text="暂无数据" />}
+      ) : <Empty text={t('common.noData')} />}
     </div>
   )
 }
 
 export function StageLegend({ segments }: { segments: StageSegment[] }) {
+  const { locale } = useI18n()
   const stages = [...new Set(segments.map(segment => segment.stage))]
   if (!stages.length) return null
   return (
@@ -137,7 +144,7 @@ export function StageLegend({ segments }: { segments: StageSegment[] }) {
       {stages.map(stage => (
         <span key={stage} className="stage-chip"
               style={{ borderColor: stageTint(stage), color: stageTint(stage) }}>
-          {stageLabel(stage)}
+          {stageLabel(stage, locale)}
         </span>
       ))}
     </div>

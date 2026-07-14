@@ -1,4 +1,4 @@
-import type { Episode, MetricRow, ReplayStep, Run, TimelineItem } from './types'
+import type { Episode, LiveEvent, LiveSnapshot, MetricRow, ReplayStep, Run, TimelineItem } from './types'
 
 async function get<T>(path: string): Promise<T> {
   const response = await fetch(path)
@@ -17,6 +17,17 @@ export const fetchMetrics = (run: string) =>
 
 export const fetchTimeline = (run: string) =>
   get<{ items: TimelineItem[] }>(`/api/runs/${encodeURIComponent(run)}/timeline`)
+
+export const fetchLiveWorkers = (run: string) =>
+  get<LiveSnapshot>(`/api/runs/${encodeURIComponent(run)}/live/workers`)
+
+export const fetchLiveEvents = (run: string, workerId: number, after?: number) => {
+  const suffix = after === undefined ? '?limit=200' : `?after=${after}&limit=500`
+  return get<{
+    enabled: boolean; session_id: string | null; worker_id: number
+    items: LiveEvent[]; next_after: number; dropped_events: number; stale: boolean
+  }>(`/api/runs/${encodeURIComponent(run)}/live/workers/${workerId}/events${suffix}`)
+}
 
 export interface EpisodeQuery {
   page?: number

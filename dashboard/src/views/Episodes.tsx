@@ -4,6 +4,7 @@ import { fetchEpisodes, fetchTimeline } from '../api'
 import { num, stageLabel } from '../format'
 import type { Episode, Run, TimelineItem } from '../types'
 import { Empty, OutcomeBadge, RoomIcon } from '../components/ui'
+import { useI18n } from '../i18n'
 
 const PAGE_SIZE = 30
 const ACT1_TOP_FLOOR = 17
@@ -23,6 +24,7 @@ export function Episodes({ run, filters, onFilters, onOpen }: {
   onFilters: (filters: EpisodeFilters) => void
   onOpen: (episode: Episode) => void
 }) {
+  const { t, locale } = useI18n()
   const [items, setItems] = useState<Episode[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -54,34 +56,34 @@ export function Episodes({ run, filters, onFilters, onOpen }: {
             style={{ paddingLeft: 28 }}
             value={filters.search}
             onChange={event => onFilters({ ...filters, search: event.target.value })}
-            placeholder="搜索 seed"
+            placeholder={t('episodes.search')}
           />
         </div>
         <select value={filters.iteration} onChange={event => onFilters({ ...filters, iteration: event.target.value })}>
-          <option value="">全部迭代</option>
-          {iterations.map(iteration => <option key={iteration} value={String(iteration)}>迭代 {iteration}</option>)}
+          <option value="">{t('episodes.allIterations')}</option>
+          {iterations.map(iteration => <option key={iteration} value={String(iteration)}>{t('common.iteration', { value: iteration })}</option>)}
         </select>
         <select value={filters.split} onChange={event => onFilters({ ...filters, split: event.target.value })}>
-          <option value="">全部来源</option>
-          <option value="train">训练</option>
-          <option value="dev">验证</option>
-          <option value="replay">回放</option>
+          <option value="">{t('episodes.allSources')}</option>
+          <option value="train">{t('episodes.training')}</option>
+          <option value="dev">{t('episodes.validation')}</option>
+          <option value="replay">{t('episodes.replay')}</option>
         </select>
         <select value={filters.outcome} onChange={event => onFilters({ ...filters, outcome: event.target.value })}>
-          <option value="">全部结果</option>
-          <option value="win">胜利</option>
-          <option value="loss">失败</option>
+          <option value="">{t('episodes.allResults')}</option>
+          <option value="win">{t('common.win')}</option>
+          <option value="loss">{t('common.loss')}</option>
         </select>
         <div className="spacer" />
-        <span className="count">{total.toLocaleString()} 场对局</span>
+        <span className="count">{t('episodes.count', { count: total.toLocaleString(locale) })}</span>
       </div>
 
       {items.length ? (
         <table className="ep-table">
           <thead>
             <tr>
-              <th>结果</th><th>对局 / SEED</th><th>阶段</th><th>路线</th>
-              <th>楼层</th><th>血量</th><th>奖励</th><th>步数</th>
+              <th>{t('episodes.result')}</th><th>{t('episodes.id')}</th><th>{t('episodes.stage')}</th><th>{t('episodes.route')}</th>
+              <th>{t('episodes.floor')}</th><th>{t('episodes.hp')}</th><th>{t('episodes.reward')}</th><th>{t('episodes.steps')}</th>
             </tr>
           </thead>
           <tbody>
@@ -92,11 +94,11 @@ export function Episodes({ run, filters, onFilters, onOpen }: {
                 <td>
                   <b>{episode.episode_id}</b>
                   <small>
-                    {episode.split === 'replay' ? '回放' : episode.split === 'dev' ? '验证' : episode.split ?? ''}
-                    {episode.iteration !== null && episode.iteration !== undefined ? ` · 迭代 ${episode.iteration}` : ''}
+                    {episode.split === 'replay' ? t('episodes.replay') : episode.split === 'dev' ? t('episodes.validation') : episode.split === 'train' ? t('episodes.training') : episode.split ?? ''}
+                    {episode.iteration !== null && episode.iteration !== undefined ? ` · ${t('common.iteration', { value: episode.iteration })}` : ''}
                   </small>
                 </td>
-                <td>{stageLabel(episode.stage)}</td>
+                <td>{stageLabel(episode.stage, locale)}</td>
                 <td><RouteStrip episode={episode} /></td>
                 <td><FloorBar floor={episode.final_floor} /></td>
                 <td className="num">{episode.final_hp ?? '—'}{episode.max_hp ? ` / ${episode.max_hp}` : ''}</td>
@@ -106,12 +108,12 @@ export function Episodes({ run, filters, onFilters, onOpen }: {
             ))}
           </tbody>
         </table>
-      ) : <Empty text="没有匹配的对局" />}
+      ) : <Empty text={t('episodes.empty')} />}
 
       <div className="pager">
-        <button disabled={page === 1} onClick={() => setPage(page - 1)} aria-label="上一页"><ChevronLeft /></button>
-        <span>第 {page} / {pages} 页</span>
-        <button disabled={page >= pages} onClick={() => setPage(page + 1)} aria-label="下一页"><ChevronRight /></button>
+        <button disabled={page === 1} onClick={() => setPage(page - 1)} aria-label={t('episodes.previous')}><ChevronLeft /></button>
+        <span>{t('episodes.page', { page, pages })}</span>
+        <button disabled={page >= pages} onClick={() => setPage(page + 1)} aria-label={t('episodes.next')}><ChevronRight /></button>
       </div>
     </section>
   )

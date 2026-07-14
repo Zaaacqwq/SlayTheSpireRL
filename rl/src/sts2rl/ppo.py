@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import threading
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 import torch
 
@@ -77,6 +77,59 @@ def _act(state: DecisionState) -> int:
     return int(context.get("act", state.raw.get("act", 0)) or 0)
 
 
+LiveCallback = Callable[[Mapping[str, Any]], None]
+
+
+def _emit_live(callback: LiveCallback | None, payload: Mapping[str, Any]) -> None:
+    """Live observability must never be able to poison an episode."""
+    if callback is None:
+        return
+    try:
+        callback(payload)
+    except Exception:
+        pass
+
+
+def _state_summary(state: DecisionState) -> dict[str, Any]:
+    raw = state.raw
+    context = raw.get("context") or {}
+    player = raw.get("player") or {}
+    return {
+        "phase": state.phase,
+        "act": _act(state),
+        "floor": _floor(state),
+        "round": context.get("round", raw.get("round")),
+        "hp": player.get("hp", raw.get("hp")),
+        "max_hp": player.get("max_hp", raw.get("max_hp")),
+        "energy": player.get("energy", raw.get("energy")),
+    }
+
+
+def _selected_label(state: DecisionState, action: ActionCandidate) -> str | None:
+    """Resolve the model/entity label targeted by a compact protocol action."""
+    args = action.args
+    sources = {
+        "card_index": ("hand", "cards", "options"),
+        "potion_index": ("potions",),
+        "relic_index": ("relics",),
+        "option_index": ("options",),
+        "bundle_index": ("bundles", "options"),
+    }
+    for key, collections in sources.items():
+        if key not in args:
+            continue
+        for collection in collections:
+            for item in state.raw.get(collection, []) or []:
+                if item.get("index") == args[key]:
+                    return str(
+                        item.get("name") or item.get("title") or item.get("id")
+                        or item.get("model_id") or item.get("text_key") or args[key]
+                    )
+    if action.action == "select_map_node":
+        return f"({args.get('col', '?')}, {args.get('row', '?')})"
+    return None
+
+
 def run_episode(
     client: EngineClient,
     stage: CurriculumStage,
@@ -88,9 +141,15 @@ def run_episode(
     ascension: int = 0,
     inference_lock: threading.Lock | None = None,
     greedy: bool = False,
+    live_callback: LiveCallback | None = None,
 ) -> EpisodeRecord:
     episode = episode_config(stage, seed, character=character, ascension=ascension)
     steps: list[StoredStep] = []
+    state: DecisionState | None = None
+    _emit_live(live_callback, {
+        "type": "episode_start", "status": "starting", "episode_id": seed,
+        "seed": seed, "step": 0,
+    })
     try:
         if isinstance(episode, CombatConfig):
             state = client.reset_combat(episode)
@@ -103,8 +162,18 @@ def run_episode(
             if done:
                 if steps:
                     steps[-1].reward += 1.0 if outcome else -1.0
+                _emit_live(live_callback, {
+                    "type": "episode_end", "status": "finished", "episode_id": seed,
+                    "seed": seed, "step": len(steps), "outcome": outcome,
+                    **_state_summary(state),
+                })
                 return EpisodeRecord(seed, steps, outcome, truncated=False, final_floor=_floor(state))
             if len(steps) >= config.max_episode_steps:
+                _emit_live(live_callback, {
+                    "type": "episode_end", "status": "truncated", "episode_id": seed,
+                    "seed": seed, "step": len(steps), "outcome": None,
+                    **_state_summary(state),
+                })
                 return EpisodeRecord(seed, steps, None, truncated=True, final_floor=_floor(state))
             if inference_lock:
                 with inference_lock:
@@ -122,11 +191,23 @@ def run_episode(
                 dict(state.raw), tuple(state.candidates), step.index,
                 step.logp, step.value, reward, hidden,
             ))
+            _emit_live(live_callback, {
+                "type": "action", "status": "running", "episode_id": seed,
+                "seed": seed, "step": len(steps), **_state_summary(state),
+                "action": action.command(), "selected_label": _selected_label(state, action),
+                "target": action.args.get("target_index"), "reward": reward,
+                "value": step.value, "logp": step.logp,
+            })
             hidden = step.hidden
             state = result.state
     except Exception as exc:  # engine faults poison the worker's episode only
+        summary = _state_summary(state) if state is not None else {}
+        _emit_live(live_callback, {
+            "type": "episode_error", "status": "error", "episode_id": seed,
+            "seed": seed, "step": len(steps), "error": type(exc).__name__, **summary,
+        })
         return EpisodeRecord(seed, steps, None, truncated=False, error=type(exc).__name__,
-                             final_floor=_floor(state) if steps else 0.0)
+                             final_floor=_floor(state) if state is not None else 0.0)
 
 
 def _terminal_outcome(stage: CurriculumStage, state: DecisionState) -> tuple[bool | None, bool]:

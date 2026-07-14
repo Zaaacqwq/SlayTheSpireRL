@@ -31,6 +31,7 @@ from sts2rl.engine import EngineClient
 from sts2rl.entities import EntityVocab
 from sts2rl.features import CANDIDATE_FEATURE_DIM
 from sts2rl.logging import ExperimentLogger
+from sts2rl.live import LiveEventWriter
 from sts2rl.model import EntityRecurrentPolicy
 from sts2rl.ppo import PPOConfig, finalize_episode, ppo_update_epoch, run_episode
 from sts2rl.seeds import split_seed
@@ -70,23 +71,33 @@ def train_seed_stream(offset: int = 0):
 
 def collect_iteration(
     clients: list[EngineClient], stage: CurriculumStage, seeds: list[str],
-    agent, config: PPOConfig,
+    agent, config: PPOConfig, *, iteration: int,
+    live: LiveEventWriter | None = None,
 ):
     # BatchedAgent is internally thread-safe; PolicyAgent needs the lock.
     lock = None if isinstance(agent, BatchedAgent) else threading.Lock()
     buckets = [seeds[i::len(clients)] for i in range(len(clients))]
 
-    def worker(client: EngineClient, bucket: list[str]):
+    def worker(worker_id: int, client: EngineClient, bucket: list[str]):
         records = []
         for seed in bucket:
-            record = run_episode(client, stage, seed, agent, config, inference_lock=lock)
+            callback = None if live is None else lambda event: live.emit(worker_id, {
+                "iteration": iteration, "stage": stage.name, "split": "train", **event,
+            })
+            record = run_episode(
+                client, stage, seed, agent, config, inference_lock=lock,
+                live_callback=callback,
+            )
             finalize_episode(record, config)
             records.append(record)
         return records
 
     records = []
     with ThreadPoolExecutor(max_workers=len(clients)) as pool:
-        futures = [pool.submit(worker, c, b) for c, b in zip(clients, buckets) if b]
+        futures = [
+            pool.submit(worker, worker_id, client, bucket)
+            for worker_id, (client, bucket) in enumerate(zip(clients, buckets)) if bucket
+        ]
         for future in futures:
             records.extend(future.result())
     return records
@@ -94,20 +105,31 @@ def collect_iteration(
 
 def evaluate_stage(
     clients: list[EngineClient], stage: CurriculumStage, seeds: list[str],
-    agent, config: PPOConfig,
+    agent, config: PPOConfig, *, iteration: int,
+    live: LiveEventWriter | None = None,
 ) -> tuple[dict[str, float], list]:
     records = []
     lock = None if isinstance(agent, BatchedAgent) else threading.Lock()
     buckets = [seeds[i::len(clients)] for i in range(len(clients))]
 
-    def worker(client: EngineClient, bucket: list[str]):
+    def worker(worker_id: int, client: EngineClient, bucket: list[str]):
+        def play(seed: str):
+            callback = None if live is None else lambda event: live.emit(worker_id, {
+                "iteration": iteration, "stage": stage.name, "split": "dev", **event,
+            })
+            return run_episode(
+                client, stage, seed, agent, config, inference_lock=lock, greedy=True,
+                live_callback=callback,
+            )
         return [
-            run_episode(client, stage, seed, agent, config, inference_lock=lock, greedy=True)
-            for seed in bucket
+            play(seed) for seed in bucket
         ]
 
     with ThreadPoolExecutor(max_workers=len(clients)) as pool:
-        futures = [pool.submit(worker, c, b) for c, b in zip(clients, buckets) if b]
+        futures = [
+            pool.submit(worker, worker_id, client, bucket)
+            for worker_id, (client, bucket) in enumerate(zip(clients, buckets)) if bucket
+        ]
         for future in futures:
             records.extend(future.result())
     wins = sum(r.outcome is True for r in records)
@@ -143,6 +165,10 @@ def main() -> int:
                         help="record full train episodes every N iterations (0 disables)")
     parser.add_argument("--record-train-episodes", type=int, default=8,
                         help="max train episodes recorded per sampled iteration")
+    parser.add_argument("--no-live-monitor", action="store_true",
+                        help="disable bounded per-worker live dashboard telemetry")
+    parser.add_argument("--live-retention", type=int, default=2000,
+                        help="recent live events retained per worker")
     args = parser.parse_args()
 
     if not os.environ.get("STS2_GAME_DIR"):
@@ -175,6 +201,10 @@ def main() -> int:
     logger = ExperimentLogger(run_dir / "tb")
     episode_writer = EpisodeArtifactWriter(run_dir)
     history_writer = IncrementalHistoryWriter(run_dir / "history.jsonl")
+    live = LiveEventWriter(
+        run_dir, args.workers, enabled=not args.no_live_monitor,
+        max_events_per_worker=args.live_retention,
+    )
     (run_dir / "config.json").write_text(json.dumps({
         **vars(args), "resume": str(args.resume) if args.resume else None,
         "ppo": config.__dict__, "vocab_size": vocab.size,
@@ -223,7 +253,9 @@ def main() -> int:
                 if len(seeds) >= config.episodes_per_iteration:
                     break
             start = time.perf_counter()
-            records = collect_iteration(clients, stage, seeds, agent, config)
+            records = collect_iteration(
+                clients, stage, seeds, agent, config, iteration=iteration, live=live,
+            )
             # Full step-level records are large; sample train iterations so an
             # 800-iteration run stays browsable without flooding the disk.
             if args.record_train_every and iteration % args.record_train_every == 0:
@@ -237,6 +269,7 @@ def main() -> int:
                     if r.error:
                         print(f"[error] seed={r.seed} {r.error}", file=sys.stderr)
                 raise SystemExit(f"episode error rate too high: {errors}/{len(records)}")
+            live.set_all("updating", iteration=iteration, stage=stage.name, split="train")
             stats = ppo_update_epoch(model, optimizer, records, vocab, config)
             for _ in range(config.update_epochs - 1):
                 stats = ppo_update_epoch(model, optimizer, records, vocab, config)
@@ -260,6 +293,7 @@ def main() -> int:
             if (iteration + 1) % args.eval_every == 0:
                 evaluation, evaluation_records = evaluate_stage(
                     clients, stage, dev_seeds[: args.eval_episodes], agent, config,
+                    iteration=iteration, live=live,
                 )
                 episode_writer.write_many(
                     evaluation_records, iteration=iteration, stage=stage.name,
@@ -284,6 +318,7 @@ def main() -> int:
         for client in clients:
             client.close()
         logger.close()
+        live.close()
     return 0
 
 

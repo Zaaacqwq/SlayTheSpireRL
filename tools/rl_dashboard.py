@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import statistics
 import threading
+import time
 from urllib.parse import parse_qs, unquote, urlparse
 
 
@@ -56,6 +57,65 @@ def default_data_root() -> Path:
         if candidate.exists():
             return candidate
     return DEFAULT_DATA_ROOT
+
+
+def _live_run_dir(data_root: Path, run_name: str) -> Path:
+    run_dir = (data_root / run_name).resolve()
+    if not _inside(data_root, run_dir) or not run_dir.is_dir():
+        raise FileNotFoundError(run_name)
+    return run_dir
+
+
+def live_workers(data_root: Path, run_name: str) -> dict:
+    """Return the latest atomic worker snapshot, or a compatible disabled state."""
+    run_dir = _live_run_dir(data_root, run_name)
+    snapshot_path = run_dir / "live" / "workers.json"
+    if not snapshot_path.exists():
+        config_path = run_dir / "config.json"
+        config = _json_load(config_path) if config_path.exists() else {}
+        return {
+            "enabled": False,
+            "session_id": None,
+            "updated_at": None,
+            "worker_count": int(config.get("workers", 0) or 0),
+            "dropped_events": 0,
+            "stale": False,
+            "workers": [],
+        }
+    snapshot = _json_load(snapshot_path)
+    age_seconds = max(0.0, time.time() - snapshot_path.stat().st_mtime)
+    snapshot["age_seconds"] = round(age_seconds, 3)
+    snapshot["stale"] = age_seconds > 15.0
+    return snapshot
+
+
+def live_worker_events(
+    data_root: Path, run_name: str, worker_id: int, *,
+    after: int | None = None, limit: int = 200,
+) -> dict:
+    run_dir = _live_run_dir(data_root, run_name)
+    snapshot = live_workers(data_root, run_name)
+    worker_count = int(snapshot.get("worker_count", 0))
+    if worker_id < 0 or worker_id >= worker_count:
+        raise FileNotFoundError(f"worker {worker_id}")
+    limit = max(1, min(int(limit), 500))
+    session_id = snapshot.get("session_id")
+    path = run_dir / "live" / f"worker_{worker_id:02d}.jsonl"
+    rows = [
+        row for row in _json_lines(path)
+        if row.get("session_id") == session_id and (after is None or int(row.get("seq", 0)) > after)
+    ] if path.exists() else []
+    rows = rows[:limit] if after is not None else rows[-limit:]
+    cursor = int(rows[-1]["seq"]) if rows else int(after or 0)
+    return {
+        "enabled": bool(snapshot.get("enabled")),
+        "session_id": session_id,
+        "worker_id": worker_id,
+        "items": rows,
+        "next_after": cursor,
+        "dropped_events": int(snapshot.get("dropped_events", 0)),
+        "stale": bool(snapshot.get("stale")),
+    }
 
 
 def _inside(root: Path, path: Path) -> bool:
@@ -552,6 +612,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._json(list_episodes(self.server.data_root, parts[2], query))
             elif len(parts) == 4 and parts[:2] == ["api", "runs"] and parts[3] == "timeline":
                 self._json(run_timeline(self.server.data_root, parts[2]))
+            elif len(parts) == 5 and parts[:2] == ["api", "runs"] and parts[3:] == ["live", "workers"]:
+                self._json(live_workers(self.server.data_root, parts[2]))
+            elif (len(parts) == 7 and parts[:2] == ["api", "runs"]
+                  and parts[3] == "live" and parts[4] == "workers" and parts[6] == "events"):
+                after = int(query["after"][0]) if "after" in query else None
+                limit = int(query.get("limit", ["200"])[0])
+                self._json(live_worker_events(
+                    self.server.data_root, parts[2], int(parts[5]), after=after, limit=limit,
+                ))
             elif len(parts) == 5 and parts[:2] == ["api", "runs"] and parts[3] == "episodes":
                 self._json(episode_detail(self.server.data_root, parts[2], parts[4], query))
             elif parsed.path == "/api/catalog":
