@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import threading
 
 import pytest
 
@@ -111,5 +112,48 @@ def test_a_dead_inference_server_fails_workers_instead_of_hanging_them():
             for future in futures:
                 with pytest.raises(InferenceServerError):
                     future.result(timeout=10)
+    finally:
+        agent.close()
+
+
+def test_the_server_does_not_sleep_between_batches():
+    """The 2ms batching pause cost 15.5ms of every decision.
+
+    Windows only wakes sleeping threads on its 64Hz scheduler tick, so any wait
+    under 15.625ms is rounded up to it — threading.Event().wait(0.002) really takes
+    15.5ms. The pause existed to let workers pile into one forward pass, which saves
+    about 0.4ms of inference across twelve states. It paid fifteen milliseconds to
+    save half of one, on every decision, and the engine round-trip hid it.
+    """
+    import time as time_module
+
+    model = make_model()
+    agent = BatchedAgent(model, EntityVocab({}))
+    try:
+        assert agent.wait_s == 0.0, "the default must not reintroduce the pause"
+
+        slept: list[float] = []
+        real_wait = threading.Event.wait
+
+        def spy(self, timeout=None):
+            if timeout is not None and 0 < timeout < 0.0156:
+                slept.append(timeout)      # a sub-tick sleep: this is the bug
+            return real_wait(self, timeout)
+
+        threading.Event.wait = spy         # type: ignore[method-assign]
+        try:
+            started = time_module.perf_counter()
+            for _ in range(20):
+                agent.act(STATES[0], CANDIDATES[0])
+            elapsed = time_module.perf_counter() - started
+        finally:
+            threading.Event.wait = real_wait  # type: ignore[method-assign]
+
+        assert not slept, f"the server slept for sub-tick timeouts: {slept}"
+        # 20 decisions that each used to cost 15.5ms of pure waiting
+        assert elapsed < 20 * 0.0156, (
+            f"20 decisions took {elapsed * 1000:.0f}ms — that is the scheduler tick, "
+            f"not the model"
+        )
     finally:
         agent.close()

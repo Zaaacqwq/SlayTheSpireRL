@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import queue
 import threading
+import time
 from typing import Any, Mapping, Sequence
 
 import torch
@@ -37,10 +38,23 @@ class InferenceServerError(RuntimeError):
 
 
 class BatchedAgent:
-    """Thread-safe drop-in for ``PolicyAgent`` backed by a batching server."""
+    """Thread-safe drop-in for ``PolicyAgent`` backed by a batching server.
+
+    ``wait_ms`` used to default to 2.0: the server paused briefly so concurrent
+    workers could pile into one forward pass. On Windows that pause cost 15.5ms,
+    not 2ms — every wait shorter than the 64Hz scheduler tick is rounded up to
+    15.625ms — and batching twelve states instead of one only saves about 0.4ms of
+    inference. It paid fifteen milliseconds to save half of one, on every single
+    decision.
+
+    It is not needed at all. Whatever the other workers queued while the previous
+    batch was running is already in the queue, so batches form on their own. When a
+    pause really is wanted, it is spun on ``perf_counter`` (accurate to ~0.01ms)
+    rather than slept.
+    """
 
     def __init__(self, model: EntityRecurrentPolicy, vocab: EntityVocab,
-                 *, max_batch: int = 32, wait_ms: float = 2.0):
+                 *, max_batch: int = 32, wait_ms: float = 0.0):
         self.model = model
         self.vocab = vocab
         self.device = next(model.parameters()).device
@@ -89,13 +103,14 @@ class BatchedAgent:
                 except queue.Empty:
                     continue
                 batch = [first]
-                deadline = threading.Event()
-                deadline.wait(self.wait_s)  # let concurrent workers queue up
-                while len(batch) < self.max_batch:
-                    try:
-                        batch.append(self._queue.get_nowait())
-                    except queue.Empty:
-                        break
+                self._drain_into(batch)
+                if self.wait_s > 0 and len(batch) < self.max_batch:
+                    # Spun, not slept: threading.Event().wait(0.002) takes 15.5ms on
+                    # Windows because the scheduler only wakes sleepers on its 64Hz
+                    # tick. perf_counter honours the request to ~0.01ms.
+                    deadline = time.perf_counter() + self.wait_s
+                    while time.perf_counter() < deadline and len(batch) < self.max_batch:
+                        self._drain_into(batch)
                 self._inflight = batch
                 self._run_batch(batch)
                 self._inflight = []
@@ -105,6 +120,14 @@ class BatchedAgent:
         finally:
             self._stop.set()
             self._abandon_pending()
+
+    def _drain_into(self, batch: list[_Request]) -> None:
+        """Take everything already queued — that is where the batching comes from."""
+        while len(batch) < self.max_batch:
+            try:
+                batch.append(self._queue.get_nowait())
+            except queue.Empty:
+                return
 
     def _abandon_pending(self) -> None:
         """Wake everyone still waiting; act() turns that into a raise."""
