@@ -361,6 +361,8 @@ def main() -> int:
     stage_index = 0
     iteration_start = 0
     seed_cursor = 0
+    resumed_from_step: int | None = None
+    last_dev_win_rate: float | None = None
 
     if args.resume:
         payload = load_checkpoint(args.resume, model, optimizer)
@@ -368,13 +370,26 @@ def main() -> int:
             print(json.dumps({"resume_migrated": payload["migrated_keys"],
                               "optimizer_reset": bool(payload.get("optimizer_skipped"))}))
         stage_index = int(payload["config"].get("stage_index", 0))
-        iteration_start = int(payload["step"]) + 1
+        resumed_from_step = int(payload["step"])
+        iteration_start = resumed_from_step + 1
         seed_cursor = int(payload["config"].get("seed_cursor", 0))
+        last_dev_win_rate = payload["config"].get("dev_win_rate")
     if args.stage:
         stage_index = [s.name for s in stages].index(args.stage)
     max_stage_index = (
         [s.name for s in stages].index(args.max_stage) if args.max_stage else len(stages) - 1
     )
+    if resumed_from_step is not None:
+        # Append-only branch marker: raw history/artifacts remain available for
+        # audits, while dashboard readers can discard metrics produced after a
+        # checkpoint that the model no longer contains.
+        resume_marker = {
+            "event": "resume", "resume_from_iteration": resumed_from_step,
+            "checkpoint": str(args.resume),
+            "stage": stages[min(stage_index, max_stage_index)].name,
+        }
+        history_writer.append(resume_marker)
+        print(json.dumps(resume_marker))
 
     seed_stream = train_seed_stream(seed_cursor)
     history: list[dict] = []
@@ -544,6 +559,7 @@ def main() -> int:
                     split="dev", character="Ironclad",
                 )
                 logger.scalar(f"{stage.name}/dev_win_rate", evaluation["win_rate"], iteration)
+                last_dev_win_rate = float(evaluation["win_rate"])
                 dev_row = {"iteration": iteration, "dev": evaluation, "stage": stage.name}
                 if not stage.is_combat:
                     dev_row["dev"] = {**evaluation, **depth_profile(evaluation_records)}
@@ -572,6 +588,17 @@ def main() -> int:
                 )
                 if advanced:
                     print(json.dumps({"advanced_to": stages[stage_index].name, "iteration": iteration}))
+            # A compact rolling recovery point protects every successful PPO
+            # update. Milestone checkpoints remain every eval interval for
+            # comparison/final selection; watchdog resumes whichever is newer.
+            save_checkpoint(
+                run_dir / "resume.pt", model, optimizer, step=iteration,
+                config={"stage_index": stage_index, "seed_cursor": seed_cursor,
+                        "stage": stages[min(stage_index, max_stage_index)].name,
+                        "dev_win_rate": last_dev_win_rate,
+                        "init_seed": args.init_seed,
+                        "terminal_only": args.terminal_only},
+            )
     finally:
         if isinstance(agent, BatchedAgent):
             agent.close()

@@ -285,7 +285,7 @@ v6 首个 act1 smoke 的实测输出已显示 `use_potion: 0.023`（今天之前
 
 因此旧 v7 checkpoint 只作回归对照，不继续正式训练。保留 `hidden=256 / layers=4 / heads=8` 方向，按 [`v7_clean_plan.md`](v7_clean_plan.md) 完成动作/观测契约、visibility audit 与 fail-fast 门槛后，从新初始化启动 `m2_v7_clean_init0`。
 
-P1–P3 初始验收词表为 2,299 行（含 UNK）；正式 Act 1 防火墙再审核追加 5 个 option，当前为 2,304。词表构建改为全局 append-only，旧 2,298 个非 UNK 索引完全不移动，避免 resumed checkpoint 的实体 embedding 静默错位。最新全量复审覆盖 1,200 个 artifact、87,212 个真实决策，15 类动作全部 offered/chosen，candidate collision、pointer miss、unknown field/entity、非有限 feature 与 violations 均为 0。
+P1–P3 初始验收词表为 2,299 行（含 UNK）；正式 Act 1 早期按失败样本追加到 2,304 后，iteration 83 又发现 Slippery Bridge 更深页面，证明逐个补洞不足。现在词表构建会从 checked-in 英文事件 localization 系统提取全部 `.options.*.title` 键，并继续全局 append-only：147 个新 option 位于 2,304–2,450，原有 1–2,303 索引完全不移动，当前共 2,451 行。最新全量复审覆盖 1,304 个 artifact、99,938 个真实决策，15 类动作全部 offered/chosen，candidate collision、pointer miss、unknown field/entity、非有限 feature 与 violations 均为 0。
 
 P4 校准完成：随机 512 minibatch 因完整地图 padding 占满 15.8GB、10 分钟未完成；entity-length-aware packing + minibatch 256 将完整 train+50-dev 轮降至约 84–92 秒、峰值约 8.4GB。同 init/seed 流首轮 KL：`5e-5=0.00667`、`1e-4=0.01857`、`3e-4=0.02804`，因此正式配置选 `lr=5e-5`，dev 单点不参与 LR 排序。
 
@@ -297,10 +297,12 @@ iteration 79 mixed dev 达 40/50（80%）后暴露两个独立问题：(1) Act 1
 
 修复后显式从 checkpoint 79 进入 Act 1 的 iteration 80 已完成：82 个整局 + 14 个 on-policy boss replay、10,805 decisions、0 engine error、0 unknown/collision/pointer/nonfinite/violation；15 类动作全部 offered/chosen。KL 0.0110 触发 target-KL early stop，只执行 1 epoch（低于 0.02 hard stop）；训练现持续停留在 Act 1，不再返回 mixed。
 
+iteration 83 随后命中 Slippery Bridge 的 `HOLD_ON_2→3→4→5→6` 链并被 strict audit 正确中止。根因不是编码器漏报，而是稳定 option 词表仍靠轨迹偶遇补全；权威 localization 显示该事件最终进入 `HOLD_ON_LOOP→HOLD_ON_LOOP` 自环。已改为预注册全部本地化事件 option，并增加完整链回归测试。另补两项恢复/展示契约：每次成功 PPO iteration 原子保存 `resume.pt`，watchdog 优先恢复较新的逐迭代点；history 记录显式 resume 分支，Dashboard 丢弃 cutoff 之后的废弃分支指标并按最近活跃时间默认选择 run。重启前测试为 RL 102 + 根目录 29 = 131 passed；恢复验收目标是新的 iteration 80 写出 `resume.pt`，随后连续 10 个 Act 1 iteration 与新 milestone 均保持 0 visibility violation。
+
 ## 下一步
 
 - P4/v7-clean：external submodule 与父仓 pin 已固定；on-policy replay 实现与计划更新随本轮提交。
 - v7-clean 选定：96 episodes/iteration、minibatch 256 + length-aware packing、`lr=5e-5`、KL early-stop；P3 fail-fast 全程保持开启。
-- 启动全新 `m2_v7_clean_init0`：256×4×8、96 episodes/iteration、minibatch 256 length packing、`lr=5e-5`、KL 0.01/0.02、12 workers、CUDA、`--on-policy-boss-replay --max-stage act1`，不加载旧 checkpoint。
+- 从 `m2_v7_clean_init0/ckpt_00079.pt` 显式恢复 Act 1：256×4×8、96 episodes/iteration、minibatch 256 length packing、`lr=5e-5`、KL 0.01/0.02、12 workers、CUDA、`--on-policy-boss-replay --stage act1 --max-stage act1`；先验证逐迭代 `resume.pt` 和 Dashboard 当前分支，再连续观察至少 10 轮。
 - Act 1 连续三个 50-seed gate ≥30% 且 450-seed audit 不退化后进入 full A0。
 - P5：5 初始化、terminal-only ablation 完成后，才运行正式 1,000 test seeds 验收。

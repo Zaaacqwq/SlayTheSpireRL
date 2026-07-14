@@ -32,7 +32,13 @@ TRAINER = REPO_ROOT / "tools" / "m2_train.py"
 
 def latest_checkpoint(run_dir: Path) -> Path | None:
     checkpoints = sorted(run_dir.glob("ckpt_*.pt"))
-    return checkpoints[-1] if checkpoints else None
+    milestone = checkpoints[-1] if checkpoints else None
+    resume = run_dir / "resume.pt"
+    if resume.exists() and (
+        milestone is None or resume.stat().st_mtime_ns >= milestone.stat().st_mtime_ns
+    ):
+        return resume
+    return milestone
 
 
 def other_trainers(run_name: str) -> list[int]:

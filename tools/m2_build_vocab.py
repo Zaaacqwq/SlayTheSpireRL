@@ -28,6 +28,7 @@ from sts2rl.observation import normalize_state
 CLI_ROOT = REPO_ROOT / "external" / "sts2-cli"
 DLL = CLI_ROOT / "src" / "Sts2Headless" / "bin" / "Debug" / "net9.0" / "Sts2Headless.dll"
 VOCAB_PATH = REPO_ROOT / "rl" / "schema" / "m2_vocab.json"
+EVENT_LOCALIZATION_PATH = CLI_ROOT / "localization_eng" / "events.json"
 
 # entity kind -> (list_models kind, state id prefix)
 CATALOGS: dict[str, tuple[str, str]] = {
@@ -60,6 +61,15 @@ REVIEWED_STABLE_KEYS: dict[str, set[str]] = {
 }
 
 
+def localized_option_keys(localization: dict[str, object]) -> set[str]:
+    """Return every canonical event option text key from localization data."""
+    suffix = ".title"
+    return {
+        key[:-len(suffix)] for key in localization
+        if ".options." in key and key.endswith(suffix)
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -86,6 +96,12 @@ def main() -> int:
         }
         for kind, keys in REVIEWED_STABLE_KEYS.items():
             discovered[kind].update(keys)
+        # Event text keys are protocol identities and the checked-in English
+        # localization is their complete catalog. This covers deep/looping
+        # state machines (notably every Slippery Bridge HOLD_ON page) that a
+        # finite random sweep cannot guarantee it will visit.
+        event_localization = json.loads(EVENT_LOCALIZATION_PATH.read_text(encoding="utf-8"))
+        discovered["option"].update(localized_option_keys(event_localization))
 
         def discover(raw: dict) -> None:
             for entity in normalize_state(raw).entities:

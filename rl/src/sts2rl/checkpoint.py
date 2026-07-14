@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import torch
 
 
 def save_checkpoint(path: Path, model, optimizer, *, step: int, config: dict, seed_hash: str = "") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save({"model": model.state_dict(), "optimizer": optimizer.state_dict(), "step": step, "config": config, "seed_hash": seed_hash}, path)
+    temp = path.with_suffix(path.suffix + f".{os.getpid()}.tmp")
+    torch.save({"model": model.state_dict(), "optimizer": optimizer.state_dict(), "step": step, "config": config, "seed_hash": seed_hash}, temp)
+    os.replace(temp, path)
 
 
 def _migrate_state_dict(model, state: dict) -> list[str]:

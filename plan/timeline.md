@@ -308,3 +308,11 @@ iteration 79 mixed dev 40/50 后首次进入 Act 1，strict audit 在 PPO 前拦
 修后全量审计覆盖该 run 的 1,200 artifacts / 87,212 decisions：15 类动作全部 offered/chosen，collision、pointer miss、unknown field/entity、non-finite 与 violations 全为 0。Python 测试 126 项通过。`ckpt_00079` 加载到 2,304 行词表时只迁移 `id_embed.weight`，新增尾行清零并按既定安全策略重置 Adam；旧实体权重不变。
 
 恢复验证：以 `--stage act1 --max-stage act1` 从 checkpoint 79 启动，iteration 80 完成 82 个整局 + 14 个 boss replay / 10,805 decisions，0 engine error、0 visibility violation，所有 15 类动作均 offered/chosen。KL 0.0110 触发 target early stop、仅跑 1 epoch且未越过 0.02 hard stop；说明新 optimizer 的首步被正确约束，训练阶段也已真正保持在 Act 1。
+
+#### v7-clean — 完整事件选项目录与逐迭代恢复（2026-07-14）
+
+恢复后的 iteration 80–82 均正常，但 iteration 83 在 Slippery Bridge 连续撞到 `HOLD_ON_2→3→4→5→6` 四个新 option，strict audit 在更新前中止。检查 checked-in 英文 localization 后确认完整链继续到 `HOLD_ON_6→HOLD_ON_LOOP`，且 `HOLD_ON_LOOP` 存在自环；这暴露出“每次从失败 artifact 增补稳定 option”的方法仍会让长尾事件反复打断训练。
+
+词表生成器现直接读取 localization 中全部 `.options.*.title` 键，过滤描述和页面标题，并保持全局 append-only。新增 147 个事件 option 位于 2,304–2,450，原有 1–2,303 索引逐个不变，词表共 2,451 行。重建后对正式 run 的 1,304 artifacts / 99,938 decisions 全量审计仍为 0 collision、0 pointer miss、0 unknown、0 non-finite、0 violation。
+
+同时修复恢复损失与 Dashboard 分支混淆：训练器每个成功 iteration 原子写 `resume.pt`，watchdog 在它比 milestone 更新时优先恢复，因此不再因十轮一存而丢掉 iteration 80–82；每次 resume 还写入带 cutoff 的 history marker，Dashboard 据此只构造当前 canonical 分支，并按 live/history/checkpoint 最近活跃时间默认选 run。相关测试加上 checkpoint 临时文件清理回归后，RL 102 + 根目录 29 = 131 passed。下一步从 checkpoint 79 再次进入 Act 1，现场验证 iteration 80 的逐迭代恢复点，然后连续观察至少 10 轮至新 milestone。

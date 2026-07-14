@@ -13,6 +13,7 @@ from tools.rl_dashboard import (
     DashboardServer,
     api_episode_detail,
     build_catalog,
+    discover_runs,
     episode_detail,
     load_eval_summary,
     load_history_for_run,
@@ -131,6 +132,36 @@ def test_history_loader_merges_dev_metrics_by_iteration(tmp_path: Path) -> None:
         "avg_floor": 7, "loss": 0.8, "dev_win_rate": 0.4,
         "dev_avg_floor": 9, "dev_errors": 0,
     }]
+
+
+def test_history_resume_marker_discards_abandoned_branch(tmp_path: Path) -> None:
+    root = tmp_path / "runs"
+    run_dir = root / "m2_v7"
+    run_dir.mkdir(parents=True)
+    (run_dir / "config.json").write_text("{}\n")
+    write_jsonl(run_dir / "history.jsonl", [
+        {"iteration": 79, "stage": "mixed_combat", "train_win_rate": 0.8},
+        {"iteration": 80, "stage": "mixed_combat", "train_win_rate": 0.7},
+        {"iteration": 87, "stage": "mixed_combat", "train_win_rate": 0.7},
+        {"event": "resume", "resume_from_iteration": 79, "stage": "act1"},
+        {"iteration": 80, "stage": "act1", "train_win_rate": 0.03},
+    ])
+    rows, _ = load_history_for_run(root, run_dir)
+    assert [(row["iteration"], row["stage"]) for row in rows] == [
+        (79, "mixed_combat"), (80, "act1"),
+    ]
+
+
+def test_run_discovery_prefers_recent_activity_over_name(tmp_path: Path) -> None:
+    root = tmp_path / "runs"
+    old = root / "z_old_smoke"
+    active = root / "a_active_train"
+    old.mkdir(parents=True)
+    active.mkdir(parents=True)
+    (old / "config.json").write_text("{}\n")
+    (active / "config.json").write_text("{}\n")
+    write_jsonl(active / "history.jsonl", [{"iteration": 1, "loss": 0.5}])
+    assert [run.name for run in discover_runs(root)] == ["a_active_train", "z_old_smoke"]
 
 
 def test_eval_loader_supports_dict_and_jsonl(tmp_path: Path) -> None:

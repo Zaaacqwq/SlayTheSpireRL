@@ -62,6 +62,7 @@ def test_checkpoint_round_trip_restores_model_optimizer_and_step(tmp_path):
     optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
     bc_update(model, optimizer, batch["global"], batch["candidates"], batch["targets"], batch["mask"])
     save_checkpoint(tmp_path / "ck.pt", model, optimizer, step=7, config={"learning_rate": 3e-4}, seed_hash="abc")
+    assert not list(tmp_path.glob("*.tmp")), "atomic checkpoint temp file leaked"
 
     torch.manual_seed(1)  # a fresh process would not share the training RNG state
     restored = CandidatePolicy()

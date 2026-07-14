@@ -25,6 +25,14 @@ def test_no_checkpoint_yet_is_a_cold_start_not_an_error(tmp_path):
     assert watchdog.latest_checkpoint(tmp_path) is None
 
 
+def test_latest_checkpoint_prefers_newer_per_iteration_resume(tmp_path):
+    milestone = tmp_path / "ckpt_00079.pt"
+    resume = tmp_path / "resume.pt"
+    milestone.touch()
+    resume.touch()
+    assert watchdog.latest_checkpoint(tmp_path) == resume
+
+
 def test_refuses_to_start_beside_another_trainer(tmp_path, monkeypatch, capsys):
     # Two trainers on one GPU starve each other. The starved run then reports a
     # collapsing avg_floor and a flat win rate, which reads exactly like a broken

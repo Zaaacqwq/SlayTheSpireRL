@@ -159,10 +159,23 @@ def build_asset_index() -> dict[str, Path]:
 def discover_runs(data_root: Path) -> list[Path]:
     if not data_root.exists():
         return []
-    return [entry for entry in sorted(data_root.iterdir(), reverse=True)
+    runs = [entry for entry in data_root.iterdir()
             if entry.is_dir() and entry.name != "m1_trajectories" and
             ((entry / "config.json").exists() or (entry / "history.jsonl").exists()
              or any(entry.glob("ckpt_*.pt")))]
+
+    def activity(run_dir: Path) -> tuple[int, str]:
+        candidates = [
+            run_dir / "live" / "workers.json", run_dir / "history.jsonl",
+            run_dir / "resume.pt", run_dir / "config.json",
+        ]
+        modified = [path.stat().st_mtime_ns for path in candidates if path.exists()]
+        return (max(modified, default=run_dir.stat().st_mtime_ns), run_dir.name)
+
+    # The frontend selects the first run on load. Activity order makes that the
+    # run currently producing live/history updates instead of whichever name is
+    # lexicographically greatest (which used to select an old smoke run).
+    return sorted(runs, key=activity, reverse=True)
 
 
 def _pivot_scalars(rows: list[dict]) -> list[dict]:
@@ -207,6 +220,13 @@ def load_history_for_run(data_root: Path, run_dir: Path) -> tuple[list[dict], st
             rows = list(_json_lines(candidate))
             by_iteration: dict[int, dict] = {}
             for raw in rows:
+                if raw.get("event") == "resume" and "resume_from_iteration" in raw:
+                    cutoff = int(raw["resume_from_iteration"])
+                    by_iteration = {
+                        iteration: row for iteration, row in by_iteration.items()
+                        if iteration <= cutoff
+                    }
+                    continue
                 if "iteration" not in raw:
                     continue
                 iteration = int(raw["iteration"])

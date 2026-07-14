@@ -1,6 +1,6 @@
 # M2 v7-clean：可见性契约与大模型训练计划
 
-状态：**P1–P4 已完成，P5 on-policy boss replay 已落地，`m2_v7_clean_init0` 正式长跑中**
+状态：**P1–P4 已完成，P5 on-policy boss replay 已落地；Act 1 的完整事件选项目录与逐迭代恢复机制已补齐，准备从 iteration 79 重启连续验证**
 开始日期：2026-07-14  
 目标：保留 v7 的 `hidden=256 / layers=4 / heads=8` 大模型方向，但在重新训练前消除动作不可达、候选碰撞和关键状态不可见问题，并把这些问题变成可自动阻断训练的契约。
 
@@ -67,7 +67,7 @@
 
 ### P3 验收结果（2026-07-14）
 
-- 词表由完整 ModelDb 目录、确定性真实引擎 sweep 和已审核 artifact 生成：当前 2,304 个 embedding 行（含 UNK）；卡牌 579、敌人 102、遗物 298、药水 66、power 273、全部 24 enchantment、10 affliction、常规及事件专用 orb。正式 Act 1 防火墙新增 5 个稳定 option ID 时采用全局尾部追加，旧 2,298 个非 UNK 索引全部保持不变。
+- 词表由完整 ModelDb 目录、英文事件 localization 的全部 `.options.*.title` 键、确定性真实引擎 sweep 和已审核 artifact 生成：当前 2,451 个 embedding 行（含 UNK）；事件选项不再依赖训练偶然撞见后逐个补洞。新增 147 个 option 全部尾部追加为 2,304–2,450，原有 1–2,303 索引逐个保持不变。
 - `rl/runs/v7_clean_visibility_audit.json` 汇总 381 个 episode、24,007 个决策：15 类动作全部 offered 且至少 chosen 一次；candidate collision、pointer miss、unknown field、unknown entity、non-finite feature 和 violations 全为 0。
 - 最终 `hidden=256 / layers=4 / heads=8` 更新 smoke（`m2_v7_clean_update_smoke_final`）在严格门槛开启下完成一次 PPO：KL 0.00474、clip fraction 0.0574、grad norm 0.922、裁剪后 0.440、explained variance 0.0254；0 engine error。
 - Python/根目录测试 119 项通过；C# 零警告编译；完整 external suite 通过 70 项。另 2 项旧 save/load 测试明确失败于当前 STS2 的 `RelicGrabBag` 重复 Populate 兼容问题，与训练路径分离，作为独立遗留项保留。
@@ -108,6 +108,12 @@ dev 单点不用于 LR 排序，选择只依据同轮 KL 安全性。原始 512 
 - [x] 修复 mixed→Act 1 恢复循环：checkpoint 在保存前计算并持久化晋级后的 stage；watchdog 对“无新 checkpoint 的重复失败”计数并停止；旧 checkpoint 79 以显式 `--stage act1` 恢复一次。
 - [x] Act 1 首次严格数据发现的 `THE_FUTURE_OF_POTIONS`、Dig/Lift rest 及 Slippery Bridge 后续 option 已审核加入 append-only vocab；1,200 artifacts / 87,212 decisions 复审为 0 violations。
 - [x] 修复后从 checkpoint 79 恢复的 Act 1 iteration 80 完成：82 run + 14 boss replay、10,805 decisions、0 error / 0 visibility violation；KL 0.011 触发 1-epoch early stop，训练继续留在 Act 1。
+- [x] iteration 83 又撞到 Slippery Bridge 的后续页面，确认“按失败样本补 option”仍不完整；改为从 checked-in 英文 localization 系统提取全部事件 option，完整覆盖 `HOLD_ON_0` 至 `HOLD_ON_LOOP`（含自环），当前 vocab 2,451 行。
+- [x] 每个成功 iteration 原子写入 `resume.pt`；watchdog 优先选择时间更新的逐迭代恢复点，避免只按 10-iteration milestone 恢复而丢失 80–82 的 PPO 更新。
+- [x] history 写入显式 resume 分支标记；Dashboard 只展示该标记之后的 canonical iteration，并按 live/history/checkpoint 活跃时间排序，避免默认打开旧 run 或把废弃分支的 iteration 80–87 混进当前曲线。
+- [x] 最新全 run 可见性复审覆盖 1,304 artifacts / 99,938 decisions：15 类动作全部 offered/chosen，collision、pointer miss、unknown、non-finite 与 violations 全为 0；Python 测试 131 项通过。
+- [ ] 从 checkpoint 79 重启，确认 iteration 80 生成 `resume.pt`，watchdog 的下一恢复源为该文件，Dashboard 当前分支不显示废弃的 80–87。
+- [ ] 连续完成至少 10 个新的 Act 1 iteration，并在新的 milestone checkpoint 上复审 0 visibility violation 后，才恢复无人值守长跑。
 
 ## P5：课程与晋级
 
