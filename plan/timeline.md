@@ -306,3 +306,5 @@ iteration 79 mixed dev 40/50 后首次进入 Act 1，strict audit 在 PPO 前拦
 修复分三层：(1) gate 后先计算下一 stage，再把下一 stage/index 原子写入 checkpoint；(2) watchdog 即使单次运行超过 `min_uptime`，只要连续从同一 checkpoint 失败也会熔断；(3) 词表改为全局 append-only。因为所有 kind 共用一个 id embedding，旧的按 kind 重排会让 option 插入点之后一千多个实体权重静默错位；现在旧 1–2298 索引逐个不变，Dig、Lift、Slippery Bridge 两个后续页和 Future of Potions 只追加为 2299–2303。
 
 修后全量审计覆盖该 run 的 1,200 artifacts / 87,212 decisions：15 类动作全部 offered/chosen，collision、pointer miss、unknown field/entity、non-finite 与 violations 全为 0。Python 测试 126 项通过。`ckpt_00079` 加载到 2,304 行词表时只迁移 `id_embed.weight`，新增尾行清零并按既定安全策略重置 Adam；旧实体权重不变。
+
+恢复验证：以 `--stage act1 --max-stage act1` 从 checkpoint 79 启动，iteration 80 完成 82 个整局 + 14 个 boss replay / 10,805 decisions，0 engine error、0 visibility violation，所有 15 类动作均 offered/chosen。KL 0.0110 触发 target early stop、仅跑 1 epoch且未越过 0.02 hard stop；说明新 optimizer 的首步被正确约束，训练阶段也已真正保持在 Act 1。

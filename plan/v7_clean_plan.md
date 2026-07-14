@@ -107,6 +107,7 @@ dev 单点不用于 LR 排序，选择只依据同轮 KL 安全性。原始 512 
 - [x] 启动 `m2_v7_clean_init0` 长跑；首轮 96 局为 0 error / 0 visibility violation，KL 0.00354；iteration 9 normal dev 42/50（84%）通过门槛并晋级 mixed，watchdog 持续守护。
 - [x] 修复 mixed→Act 1 恢复循环：checkpoint 在保存前计算并持久化晋级后的 stage；watchdog 对“无新 checkpoint 的重复失败”计数并停止；旧 checkpoint 79 以显式 `--stage act1` 恢复一次。
 - [x] Act 1 首次严格数据发现的 `THE_FUTURE_OF_POTIONS`、Dig/Lift rest 及 Slippery Bridge 后续 option 已审核加入 append-only vocab；1,200 artifacts / 87,212 decisions 复审为 0 violations。
+- [x] 修复后从 checkpoint 79 恢复的 Act 1 iteration 80 完成：82 run + 14 boss replay、10,805 decisions、0 error / 0 visibility violation；KL 0.011 触发 1-epoch early stop，训练继续留在 Act 1。
 
 ## P5：课程与晋级
 
