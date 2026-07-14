@@ -19,7 +19,10 @@ import sys
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "rl" / "src"))
 from sts2rl.engine import EngineClient, RunConfig
-from sts2rl.entities import ENTITY_KINDS, EntityVocab, _VOCAB_KIND_ALIASES, entity_key
+from sts2rl.entities import (
+    ENTITY_KINDS, EntityVocab, _VOCAB_KIND_ALIASES, entity_key,
+    extend_vocab_entries,
+)
 from sts2rl.observation import normalize_state
 
 CLI_ROOT = REPO_ROOT / "external" / "sts2-cli"
@@ -48,6 +51,11 @@ REVIEWED_STABLE_KEYS: dict[str, set[str]] = {
     "option": {
         "SLIPPERY_BRIDGE.pages.INITIAL.options.OVERCOME",
         "SLIPPERY_BRIDGE.pages.INITIAL.options.HOLD_ON_0",
+        "SLIPPERY_BRIDGE.pages.HOLD_ON_0.options.HOLD_ON_1",
+        "SLIPPERY_BRIDGE.pages.HOLD_ON_1.options.HOLD_ON_2",
+        "THE_FUTURE_OF_POTIONS.pages.INITIAL.options.POTION",
+        "DigRestSiteOption",
+        "LiftRestSiteOption",
     },
 }
 
@@ -167,12 +175,12 @@ def main() -> int:
                     for row in pq.read_table(artifact, columns=["state"]).to_pylist():
                         discover(without_nulls(row["state"]))
 
-        entries: dict[str, dict[str, int]] = {kind: {} for kind in discovered}
-        next_index = 1
-        for kind in discovered:
-            for key in sorted(discovered[kind]):
-                entries[kind][key] = next_index
-                next_index += 1
+        # The single id embedding is shared by every kind. Preserve every
+        # existing index across vocabulary growth; sorting a regenerated option
+        # list would otherwise shift power/event/etc. ids and silently corrupt a
+        # resumed checkpoint. A clean build remains deterministic from empty.
+        existing = EntityVocab.load(VOCAB_PATH).entries if VOCAB_PATH.exists() else {}
+        entries = extend_vocab_entries(existing, discovered)
 
     vocab = EntityVocab(entries)
     vocab.save(VOCAB_PATH)

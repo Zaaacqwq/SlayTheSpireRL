@@ -67,7 +67,7 @@
 
 ### P3 验收结果（2026-07-14）
 
-- 词表由完整 ModelDb 目录、确定性真实引擎 sweep 和已审核 smoke artifact 生成：2,299 个稳定实体；卡牌 579、敌人 102、遗物 298、药水 66、power 273、全部 24 enchantment、10 affliction、常规及事件专用 orb。
+- 词表由完整 ModelDb 目录、确定性真实引擎 sweep 和已审核 artifact 生成：当前 2,304 个 embedding 行（含 UNK）；卡牌 579、敌人 102、遗物 298、药水 66、power 273、全部 24 enchantment、10 affliction、常规及事件专用 orb。正式 Act 1 防火墙新增 5 个稳定 option ID 时采用全局尾部追加，旧 2,298 个非 UNK 索引全部保持不变。
 - `rl/runs/v7_clean_visibility_audit.json` 汇总 381 个 episode、24,007 个决策：15 类动作全部 offered 且至少 chosen 一次；candidate collision、pointer miss、unknown field、unknown entity、non-finite feature 和 violations 全为 0。
 - 最终 `hidden=256 / layers=4 / heads=8` 更新 smoke（`m2_v7_clean_update_smoke_final`）在严格门槛开启下完成一次 PPO：KL 0.00474、clip fraction 0.0574、grad norm 0.922、裁剪后 0.440、explained variance 0.0254；0 engine error。
 - Python/根目录测试 119 项通过；C# 零警告编译；完整 external suite 通过 70 项。另 2 项旧 save/load 测试明确失败于当前 STS2 的 `RelicGrabBag` 重复 Populate 兼容问题，与训练路径分离，作为独立遗留项保留。
@@ -105,6 +105,8 @@ dev 单点不用于 LR 排序，选择只依据同轮 KL 安全性。原始 512 
 - [x] 相同 init/seed 流完成 `lr=1e-4` 与 `3e-4` 等规模短程对照；另补 `5e-5` 安全校准。
 - [x] 依据 KL 选择 `lr=5e-5 / minibatch=256 / length-aware packing`。
 - [x] 启动 `m2_v7_clean_init0` 长跑；首轮 96 局为 0 error / 0 visibility violation，KL 0.00354；iteration 9 normal dev 42/50（84%）通过门槛并晋级 mixed，watchdog 持续守护。
+- [x] 修复 mixed→Act 1 恢复循环：checkpoint 在保存前计算并持久化晋级后的 stage；watchdog 对“无新 checkpoint 的重复失败”计数并停止；旧 checkpoint 79 以显式 `--stage act1` 恢复一次。
+- [x] Act 1 首次严格数据发现的 `THE_FUTURE_OF_POTIONS`、Dig/Lift rest 及 Slippery Bridge 后续 option 已审核加入 append-only vocab；1,200 artifacts / 87,212 decisions 复审为 0 violations。
 
 ## P5：课程与晋级
 

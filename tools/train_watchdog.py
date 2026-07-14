@@ -86,6 +86,7 @@ def main() -> int:
     run_dir = args.runs_root / args.run_name
     log_path = args.runs_root / f"{args.run_name}.log"
     restarts = 0
+    stalled_restarts = 0
 
     while True:
         checkpoint = latest_checkpoint(run_dir)
@@ -117,15 +118,26 @@ def main() -> int:
         else:
             restarts = 0
 
+        newest_checkpoint = latest_checkpoint(run_dir)
+        if newest_checkpoint == checkpoint:
+            stalled_restarts += 1
+        else:
+            stalled_restarts = 0
+
         report = {"watchdog": "trainer died", "exit_code": code,
-                  "uptime_s": round(uptime, 1), "consecutive_fast_failures": restarts}
+                  "uptime_s": round(uptime, 1), "consecutive_fast_failures": restarts,
+                  "failures_without_checkpoint_progress": stalled_restarts}
         print(json.dumps(report), file=sys.stderr, flush=True)
 
-        if restarts >= args.max_restarts:
+        if restarts >= args.max_restarts or stalled_restarts >= args.max_restarts:
+            reason = (
+                f"{restarts} failures each under {args.min_uptime}s"
+                if restarts >= args.max_restarts else
+                f"{stalled_restarts} failures without a newer checkpoint"
+            )
             print(json.dumps({
                 "watchdog": "giving up",
-                "reason": f"{restarts} failures each under {args.min_uptime}s — "
-                          f"this is a bug, not a flaky machine",
+                "reason": reason + " — this is a bug, not a flaky machine",
             }), file=sys.stderr, flush=True)
             return 1
 

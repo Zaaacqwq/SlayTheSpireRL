@@ -102,3 +102,19 @@ def test_gives_up_on_a_crash_loop_instead_of_restarting_forever(tmp_path, monkey
     ])
     # every attempt dies instantly, so uptime < min-uptime and the counter climbs
     assert watchdog.main() == 1
+
+
+def test_gives_up_when_long_failures_make_no_checkpoint_progress(tmp_path, monkeypatch):
+    run_dir = tmp_path / "m2_v7"
+    run_dir.mkdir()
+    (run_dir / "ckpt_00079.pt").touch()
+    monkeypatch.setattr(watchdog, "other_trainers", lambda _run: [])
+    monkeypatch.setattr(watchdog.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(watchdog.subprocess, "call", lambda *_a, **_k: 1)
+    monkeypatch.setattr(sys, "argv", [
+        "train_watchdog.py", "--run-name", "m2_v7", "--runs-root", str(tmp_path),
+        "--min-uptime", "0", "--max-restarts", "2",
+    ])
+    # Uptime never counts as a fast failure, but retrying the identical
+    # checkpoint is still a deterministic crash loop and must terminate.
+    assert watchdog.main() == 1

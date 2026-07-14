@@ -54,6 +54,32 @@ _SMALL_SCALE = 10.0
 _FEATURE_LIMIT = 10.0
 
 
+def extend_vocab_entries(
+    existing: Mapping[str, Mapping[str, int]],
+    discovered: Mapping[str, Iterable[str]],
+) -> dict[str, dict[str, int]]:
+    """Append new ids without changing any checkpoint-visible index.
+
+    All entity kinds share one embedding table. Re-sorting a regenerated kind
+    would therefore shift every later kind and silently attach learned weights
+    to the wrong content. Existing indices are immutable; newly reviewed ids
+    are sorted only among themselves and appended to the global tail.
+    """
+    entries = {kind: dict(rows) for kind, rows in existing.items()}
+    indexes = sorted(index for rows in entries.values() for index in rows.values())
+    if indexes != list(range(1, len(indexes) + 1)):
+        raise ValueError("existing vocabulary indices must be unique and contiguous")
+    next_index = len(indexes) + 1
+    for kind, keys in discovered.items():
+        rows = entries.setdefault(kind, {})
+        for key in sorted(set(keys)):
+            if key == "UNK" or key in rows:
+                continue
+            rows[key] = next_index
+            next_index += 1
+    return entries
+
+
 def phase_id(phase: str) -> int:
     return _PHASE_INDEX[phase]
 

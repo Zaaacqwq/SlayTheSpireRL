@@ -59,6 +59,17 @@ LOADOUTS_PATH = REPO_ROOT / "rl" / "schema" / "m2_boss_loadouts.json"
 MAX_EPISODE_ERROR_RATE = 0.05
 
 
+def stage_index_after_evaluation(
+    stage_index: int, max_stage_index: int, stage_name: str, win_rate: float,
+) -> int:
+    """Return the stage that a checkpoint must resume after this gate."""
+    threshold = ADVANCE_THRESHOLDS.get(stage_name)
+    if (threshold is not None and win_rate >= threshold
+            and stage_index < max_stage_index):
+        return stage_index + 1
+    return stage_index
+
+
 def _loadout_dict(loadout: Loadout) -> dict:
     return {
         "hp": loadout.hp, "max_hp": loadout.max_hp,
@@ -545,16 +556,21 @@ def main() -> int:
                 # series and a blank "best dev win rate" tile.
                 history_writer.append(dev_row)
                 print(json.dumps(dev_row))
+                resumed_stage_index = stage_index_after_evaluation(
+                    stage_index, max_stage_index, stage.name, evaluation["win_rate"],
+                )
+                advanced = resumed_stage_index != stage_index
+                stage_index = resumed_stage_index
                 save_checkpoint(
                     run_dir / f"ckpt_{iteration:05d}.pt", model, optimizer,
                     step=iteration,
                     config={"stage_index": stage_index, "seed_cursor": seed_cursor,
-                            "stage": stage.name, "dev_win_rate": evaluation["win_rate"],
+                            "stage": stages[stage_index].name,
+                            "evaluated_stage": stage.name,
+                            "dev_win_rate": evaluation["win_rate"],
                             "init_seed": args.init_seed, "terminal_only": args.terminal_only},
                 )
-                threshold = ADVANCE_THRESHOLDS.get(stage.name)
-                if threshold is not None and evaluation["win_rate"] >= threshold and stage_index < max_stage_index:
-                    stage_index += 1
+                if advanced:
                     print(json.dumps({"advanced_to": stages[stage_index].name, "iteration": iteration}))
     finally:
         if isinstance(agent, BatchedAgent):

@@ -87,6 +87,29 @@ def test_vocab_round_trips_through_json(tmp_path):
     assert json.loads(path.read_text())["version"] == 1
 
 
+def test_vocab_growth_is_append_only_across_entity_kinds():
+    from sts2rl.entities import extend_vocab_entries
+
+    existing = {
+        "option": {"Z_OPTION": 1},
+        "power": {"POWER.STRENGTH": 2},
+    }
+    grown = extend_vocab_entries(existing, {
+        "option": {"A_OPTION", "Z_OPTION"},
+        "power": {"POWER.STRENGTH"},
+    })
+    assert grown["option"]["Z_OPTION"] == 1
+    assert grown["power"]["POWER.STRENGTH"] == 2
+    assert grown["option"]["A_OPTION"] == 3
+
+
+def test_vocab_growth_rejects_noncontiguous_or_duplicate_indices():
+    from sts2rl.entities import extend_vocab_entries
+
+    with pytest.raises(ValueError, match="unique and contiguous"):
+        extend_vocab_entries({"option": {"A": 1}, "power": {"B": 1}}, {})
+
+
 def test_phase_ids_cover_protocol_decisions_and_reject_unknown():
     assert len(set(phase_id(p) for p in PHASES)) == len(PHASES)
     with pytest.raises(KeyError):

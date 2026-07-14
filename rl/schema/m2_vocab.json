@@ -1144,7 +1144,12 @@
       "WHISPERING_HOLLOW.pages.INITIAL.options.HUG": 1130,
       "WOOD_CARVINGS.pages.INITIAL.options.BIRD": 1131,
       "WOOD_CARVINGS.pages.INITIAL.options.SNAKE": 1132,
-      "WOOD_CARVINGS.pages.INITIAL.options.TORUS": 1133
+      "WOOD_CARVINGS.pages.INITIAL.options.TORUS": 1133,
+      "DigRestSiteOption": 2299,
+      "LiftRestSiteOption": 2300,
+      "SLIPPERY_BRIDGE.pages.HOLD_ON_0.options.HOLD_ON_1": 2301,
+      "SLIPPERY_BRIDGE.pages.HOLD_ON_1.options.HOLD_ON_2": 2302,
+      "THE_FUTURE_OF_POTIONS.pages.INITIAL.options.POTION": 2303
     },
     "power": {
       "POWER.ACCELERANT_POWER": 1134,

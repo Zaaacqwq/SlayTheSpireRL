@@ -285,13 +285,15 @@ v6 首个 act1 smoke 的实测输出已显示 `use_potion: 0.023`（今天之前
 
 因此旧 v7 checkpoint 只作回归对照，不继续正式训练。保留 `hidden=256 / layers=4 / heads=8` 方向，按 [`v7_clean_plan.md`](v7_clean_plan.md) 完成动作/观测契约、visibility audit 与 fail-fast 门槛后，从新初始化启动 `m2_v7_clean_init0`。
 
-P1–P3 已实施并验收：最终词表 2,299 个稳定实体；累计 381 个 smoke/preflight episode、24,007 个真实决策中，15 类动作全部 offered/chosen，candidate collision、pointer miss、unknown field/entity、非有限 feature 与 violations 均为 0。报告为 `rl/runs/v7_clean_visibility_audit.json`。external 已固定到 `e1a0688e…`。
+P1–P3 初始验收词表为 2,299 行（含 UNK）；正式 Act 1 防火墙再审核追加 5 个 option，当前为 2,304。词表构建改为全局 append-only，旧 2,298 个非 UNK 索引完全不移动，避免 resumed checkpoint 的实体 embedding 静默错位。最新全量复审覆盖 1,200 个 artifact、87,212 个真实决策，15 类动作全部 offered/chosen，candidate collision、pointer miss、unknown field/entity、非有限 feature 与 violations 均为 0。
 
 P4 校准完成：随机 512 minibatch 因完整地图 padding 占满 15.8GB、10 分钟未完成；entity-length-aware packing + minibatch 256 将完整 train+50-dev 轮降至约 84–92 秒、峰值约 8.4GB。同 init/seed 流首轮 KL：`5e-5=0.00667`、`1e-4=0.01857`、`3e-4=0.02804`，因此正式配置选 `lr=5e-5`，dev 单点不参与 LR 排序。
 
 P5 的 on-policy boss replay 已落地：`--on-policy-boss-replay` 完全不读取 v4 的 `m2_boss_loadouts.json`，只从当前策略真实抵达 boss 的首回合抽取 HP、保留 `+` 升级层级的完整牌组、遗物、药水与实际 boss id；run 内原子持久化，8 个不同快照后才启用 15% replay，滚动上限 256。真实引擎已从 `THE_KIN_BOSS` artifact 原样恢复 39 HP、17 张牌（1 张升级牌）并进入 `combat_play`；小型 CUDA trainer smoke 为 0 error / 0 visibility violation，且阶段表没有旧静态 boss stage。
 
 正式 `m2_v7_clean_init0` 已由 watchdog 启动。iteration 0：96 局、1,709 decisions、0 engine error、0 visibility violation、KL 0.00354、4 epochs、grad norm 0.996→0.460、reward health 正常，墙钟 22.1 秒；iteration 9 normal dev 42/50（84%）超过 80% 门槛，首个 checkpoint 已落盘并晋级 mixed。on-policy boss buffer 在 combat curriculum 阶段按设计保持为空。
+
+iteration 79 mixed dev 达 40/50（80%）后暴露两个独立问题：(1) Act 1 strict audit 发现 5 次未知 option（Future of Potions 与 Dig）；(2) checkpoint 在 stage_index 增加前保存，watchdog 恢复后回到 mixed，之后每逢 gate 又重复。PPO 防火墙始终在更新前中止，所以未知实体没有污染权重。现已修复保存顺序并增加 watchdog 无 checkpoint 进展熔断；从全部失败 artifact 另审核到 Lift 与 Slippery Bridge 后续选项，共追加 5 个稳定 ID。checkpoint 79 加载只扩展 `id_embed.weight` 尾部 5 行并重置 Adam，不改变任何旧实体权重。
 
 ## 下一步
 
