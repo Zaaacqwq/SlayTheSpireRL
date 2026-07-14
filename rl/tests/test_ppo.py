@@ -185,3 +185,53 @@ def test_boss_bridge_stage_uses_harvested_loadouts():
     # without loadouts the ladder is unchanged
     assert [s.name for s in ironclad_stages(CATALOG)] == [
         "normal_combat", "mixed_combat", "act1", "full_a0"]
+
+
+# Act 1 ships two disjoint regions; a run only ever visits one (300/300 sampled
+# A0 Ironclad runs start in Overgrowth). Training both spends ~48% of every
+# combat stage on monsters the agent will never meet.
+REGION_CATALOG = [
+    {"id": "OW1", "act": 1, "category": "weak", "act_id": "OVERGROWTH"},
+    {"id": "OR1", "act": 1, "category": "regular", "act_id": "OVERGROWTH"},
+    {"id": "OE1", "act": 1, "category": "elite", "act_id": "OVERGROWTH"},
+    {"id": "OB1", "act": 1, "category": "boss", "act_id": "OVERGROWTH"},
+    {"id": "UW1", "act": 1, "category": "weak", "act_id": "UNDERDOCKS"},
+    {"id": "UR1", "act": 1, "category": "regular", "act_id": "UNDERDOCKS"},
+    {"id": "UE1", "act": 1, "category": "elite", "act_id": "UNDERDOCKS"},
+    {"id": "UB1", "act": 1, "category": "boss", "act_id": "UNDERDOCKS"},
+]
+
+
+def test_act_variant_restricts_every_combat_pool_to_the_visited_region():
+    from sts2rl.curriculum import Loadout, act_variant_of
+
+    loadouts = (Loadout(50, 80, ("STRIKE_IRONCLAD",), (), ()),)
+    stages = {
+        s.name: s for s in ironclad_stages(REGION_CATALOG, loadouts, act_variant="OVERGROWTH")
+    }
+    assert set(stages["normal_combat"].encounters) == {"OW1", "OR1"}
+    assert set(stages["mixed_combat"].encounters) == {"OW1", "OR1", "OE1"}
+    assert set(stages["boss_combat"].encounters) == {"OB1"}
+    assert act_variant_of(REGION_CATALOG, "UB1") == "UNDERDOCKS"
+
+    # unfiltered keeps both regions (the pre-fix behaviour)
+    both = {s.name: s for s in ironclad_stages(REGION_CATALOG, loadouts)}
+    assert set(both["boss_combat"].encounters) == {"OB1", "UB1"}
+
+
+def test_unknown_act_variant_fails_closed_instead_of_training_half_a_curriculum():
+    with pytest.raises(ValueError):
+        ironclad_stages(REGION_CATALOG, act_variant="NO_SUCH_REGION")
+
+
+def test_boss_replay_split_holds_out_a_slice_for_the_boss_stage():
+    from sts2rl.curriculum import boss_replay_split
+
+    seeds = [f"s{i}" for i in range(48)]
+    boss, main = boss_replay_split(seeds, 0.15)
+    assert len(boss) == 7 and len(main) == 41
+    assert boss + main == seeds          # every seed is used exactly once
+    assert not set(boss) & set(main)     # and never trained twice
+    assert boss_replay_split(seeds, 0.0) == ([], seeds)
+    with pytest.raises(ValueError):
+        boss_replay_split(seeds, 1.0)

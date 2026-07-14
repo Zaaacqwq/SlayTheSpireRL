@@ -91,23 +91,56 @@ def episode_config(
     return RunConfig(character, seed, ascension)
 
 
+def boss_replay_split(seeds: Sequence[str], fraction: float) -> tuple[list[str], list[str]]:
+    """Split an iteration's seeds into (boss replay, main stage).
+
+    A full run holds one boss fight and only ~60% of runs reach it, so the boss
+    gradient is diluted ~1:100 and the skill decays during run-stage training.
+    Replaying a fixed slice of each iteration as boss fights holds it in place.
+    """
+    if not 0.0 <= fraction < 1.0:
+        raise ValueError(f"fraction must be in [0, 1): {fraction}")
+    count = round(fraction * len(seeds))
+    return list(seeds[:count]), list(seeds[count:])
+
+
+def act_variant_of(encounter_catalog: Sequence[dict], encounter_id: str) -> str | None:
+    """The ``act_id`` (region) an encounter belongs to, e.g. ``OVERGROWTH``."""
+    for row in encounter_catalog:
+        if str(row.get("id")) == encounter_id:
+            return None if row.get("act_id") is None else str(row["act_id"])
+    return None
+
+
 def ironclad_stages(
     encounter_catalog: Sequence[dict], boss_loadouts: Sequence[Loadout] = (),
+    *, act_variant: str | None = None,
 ) -> tuple[CurriculumStage, ...]:
     """Build the M2 stages from the engine's ``list_models`` encounter rows.
 
     normal combat -> mixed combat (regulars + elites) -> [boss bridge with
     harvested mid-run loadouts, when available] -> Act 1 runs -> full A0.
+
+    ``act_variant`` restricts the encounter pools to one region. Act 1 ships two
+    disjoint regions (OVERGROWTH / UNDERDOCKS) but a run only ever visits one of
+    them — 300/300 sampled A0 Ironclad runs start in Overgrowth — so leaving both
+    in spends ~48% of every combat stage on monsters the agent will never meet,
+    and calibrates the advance thresholds against that polluted mix. Callers pass
+    the region the engine actually hands out (see ``m2_train.detect_act_variant``).
+    ``None`` keeps the full pool.
     """
     def act1(category: str) -> tuple[str, ...]:
         return tuple(sorted(
             str(row["id"]) for row in encounter_catalog
             if row["act"] == 1 and row["category"] == category
+            and (act_variant is None or str(row.get("act_id")) == act_variant)
         ))
 
     weak, regular, elite, boss = act1("weak"), act1("regular"), act1("elite"), act1("boss")
     if not (weak and regular and elite and boss):
-        raise ValueError("encounter catalog is missing act 1 categories")
+        raise ValueError(
+            f"encounter catalog is missing act 1 categories (act_variant={act_variant!r})"
+        )
     stages = [
         CurriculumStage("normal_combat", weak + regular),
         CurriculumStage("mixed_combat", weak + regular + elite),

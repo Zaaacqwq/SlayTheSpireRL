@@ -17,6 +17,7 @@ import shutil
 import sys
 import threading
 import time
+from typing import Sequence
 
 import torch
 
@@ -26,8 +27,10 @@ from sts2rl.agent import PolicyAgent
 from sts2rl.artifacts import EpisodeArtifactWriter, IncrementalHistoryWriter
 from sts2rl.batch_inference import BatchedAgent
 from sts2rl.checkpoint import load_checkpoint, save_checkpoint
-from sts2rl.curriculum import CurriculumStage, Loadout, ironclad_stages
-from sts2rl.engine import EngineClient
+from sts2rl.curriculum import (
+    CurriculumStage, Loadout, act_variant_of, boss_replay_split, ironclad_stages,
+)
+from sts2rl.engine import EngineClient, RunConfig
 from sts2rl.entities import EntityVocab
 from sts2rl.features import CANDIDATE_FEATURE_DIM
 from sts2rl.logging import ExperimentLogger
@@ -67,6 +70,26 @@ def train_seed_stream(offset: int = 0):
         seed = f"{NAMESPACE}-train-{index}"
         if split_seed(seed) == "train":
             yield seed
+
+
+def detect_act_variant(client: EngineClient, catalog: Sequence[dict], probes: int = 8) -> str | None:
+    """Which Act 1 region does the engine actually hand out?
+
+    Act 1 ships two disjoint regions and a run only ever visits one. start_run
+    announces the act's boss at floor 1, so a handful of probes settle it without
+    playing anything. Returns None when the probes disagree, which keeps the full
+    pool rather than silently training on half a curriculum.
+    """
+    variants = set()
+    for index in range(probes):
+        state = client.reset(RunConfig("Ironclad", f"{NAMESPACE}-actprobe-{index}"))
+        boss = ((state.raw.get("context") or {}).get("boss") or {}).get("id")
+        if not boss:
+            return None
+        variants.add(act_variant_of(catalog, str(boss)))
+    if len(variants) != 1:
+        return None
+    return next(iter(variants))
 
 
 def collect_iteration(
@@ -169,7 +192,15 @@ def main() -> int:
                         help="disable bounded per-worker live dashboard telemetry")
     parser.add_argument("--live-retention", type=int, default=2000,
                         help="recent live events retained per worker")
+    parser.add_argument("--boss-mix", type=float, default=0.15,
+                        help="fraction of each run-stage iteration replayed as boss "
+                             "fights, so the boss skill is not forgotten (0 disables)")
+    parser.add_argument("--all-act-regions", action="store_true",
+                        help="keep both Act 1 regions in the encounter pools; by default "
+                             "only the region runs actually visit is trained on")
     args = parser.parse_args()
+    if not 0.0 <= args.boss_mix < 1.0:
+        raise SystemExit("--boss-mix must be in [0, 1)")
 
     if not os.environ.get("STS2_GAME_DIR"):
         raise SystemExit("STS2_GAME_DIR required")
@@ -213,6 +244,7 @@ def main() -> int:
 
     with make_client() as probe:
         catalog = probe.list_models("encounter")
+        act_variant = None if args.all_act_regions else detect_act_variant(probe, catalog)
     boss_loadouts: tuple[Loadout, ...] = ()
     if LOADOUTS_PATH.exists():
         harvested = json.loads(LOADOUTS_PATH.read_text(encoding="utf-8"))
@@ -221,7 +253,13 @@ def main() -> int:
                     tuple(row["relics"]), tuple(row["potions"]))
             for row in harvested["loadouts"]
         )
-    stages = ironclad_stages(catalog, boss_loadouts)
+    stages = ironclad_stages(catalog, boss_loadouts, act_variant=act_variant)
+    boss_stage = next((s for s in stages if s.name == "boss_combat"), None)
+    print(json.dumps({
+        "act_variant": act_variant,
+        "encounters": {s.name: len(s.encounters) for s in stages if s.is_combat},
+        "boss_mix": args.boss_mix,
+    }))
     clients = [make_client() for _ in range(args.workers)]
     stage_index = 0
     iteration_start = 0
@@ -253,9 +291,24 @@ def main() -> int:
                 if len(seeds) >= config.episodes_per_iteration:
                     break
             start = time.perf_counter()
+            # Anti-forgetting: a full run holds exactly one boss fight and only
+            # ~60% of runs reach it, so boss gradient is diluted ~1:100 against
+            # regular combat and the boss skill decays away (measured: bridge win
+            # rate 23.3% -> 12.5% over 160 act1 iterations, collapsing hardest on
+            # the two bosses real runs meet most). Keep replaying boss fights
+            # while the run stages train.
+            boss_seeds: list[str] = []
+            if boss_stage is not None and not stage.is_combat and args.boss_mix > 0:
+                boss_seeds, seeds = boss_replay_split(seeds, args.boss_mix)
             records = collect_iteration(
                 clients, stage, seeds, agent, config, iteration=iteration, live=live,
             )
+            boss_records = []
+            if boss_seeds:
+                boss_records = collect_iteration(
+                    clients, boss_stage, boss_seeds, agent, config,
+                    iteration=iteration, live=live,
+                )
             # Full step-level records are large; sample train iterations so an
             # 800-iteration run stays browsable without flooding the disk.
             if args.record_train_every and iteration % args.record_train_every == 0:
@@ -263,18 +316,19 @@ def main() -> int:
                     records[: args.record_train_episodes], iteration=iteration,
                     stage=stage.name, split="train", character="Ironclad",
                 )
-            errors = sum(r.error is not None for r in records)
-            if errors / max(len(records), 1) > MAX_EPISODE_ERROR_RATE:
-                for r in records:
+            trained = records + boss_records
+            errors = sum(r.error is not None for r in trained)
+            if errors / max(len(trained), 1) > MAX_EPISODE_ERROR_RATE:
+                for r in trained:
                     if r.error:
                         print(f"[error] seed={r.seed} {r.error}", file=sys.stderr)
-                raise SystemExit(f"episode error rate too high: {errors}/{len(records)}")
+                raise SystemExit(f"episode error rate too high: {errors}/{len(trained)}")
             live.set_all("updating", iteration=iteration, stage=stage.name, split="train")
-            stats = ppo_update_epoch(model, optimizer, records, vocab, config)
+            stats = ppo_update_epoch(model, optimizer, trained, vocab, config)
             for _ in range(config.update_epochs - 1):
-                stats = ppo_update_epoch(model, optimizer, records, vocab, config)
+                stats = ppo_update_epoch(model, optimizer, trained, vocab, config)
             wins = sum(r.outcome is True for r in records)
-            steps_total = sum(len(r.steps) for r in records)
+            steps_total = sum(len(r.steps) for r in trained)
             row = {
                 "iteration": iteration, "stage": stage.name,
                 "train_win_rate": wins / max(len(records), 1),
@@ -284,11 +338,21 @@ def main() -> int:
                 **stats,
                 "seconds": round(time.perf_counter() - start, 1),
             }
+            if boss_records:
+                # Boss retention, tracked separately: it must not be averaged into
+                # the stage score that gates advancement.
+                row["boss_replay_episodes"] = len(boss_records)
+                row["boss_replay_win_rate"] = round(
+                    sum(r.outcome is True for r in boss_records) / len(boss_records), 4
+                )
             history.append(row)
             history_writer.append(row)
             print(json.dumps(row))
             for key in ("train_win_rate", "avg_floor", "loss", "policy_loss", "value_loss", "entropy"):
                 logger.scalar(f"{stage.name}/{key}", float(row[key]), iteration)
+            if "boss_replay_win_rate" in row:
+                logger.scalar(f"{stage.name}/boss_replay_win_rate",
+                              float(row["boss_replay_win_rate"]), iteration)
 
             if (iteration + 1) % args.eval_every == 0:
                 evaluation, evaluation_records = evaluate_stage(
