@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { CircleDot, Crown, Gem, Heart, Info, ShoppingBag, Skull, Sparkles, Swords, Trophy } from 'lucide-react'
-import { outcomeKnown, outcomeLabel, won } from '../format'
+import { outcomeKnown, outcomeLabel, stageLabel, stageTint, won } from '../format'
 import { useI18n } from '../i18n'
 import type { Locale } from '../i18n'
 
@@ -33,6 +33,33 @@ export function InfoTip({ text }: { text: string }) {
       <button type="button" aria-label="Info"><Info /></button>
       <span role="tooltip">{text}</span>
     </span>
+  )
+}
+
+/** Pick one curriculum stage to look at. Mixing them corrupts every chart: a
+ *  combat stage's avg_floor is the constant 1.0 and its win rate is a different
+ *  quantity entirely from a full run's. */
+export function StagePicker({ stages, value, onChange, allLabel }: {
+  stages: string[]
+  value: string
+  onChange: (stage: string) => void
+  allLabel: string
+}) {
+  const { locale } = useI18n()
+  if (stages.length < 2) return null
+  return (
+    <div className="stage-picker" role="tablist">
+      <button role="tab" aria-selected={value === ''} className={value === '' ? 'active' : ''}
+              onClick={() => onChange('')}>{allLabel}</button>
+      {stages.map(stage => (
+        <button key={stage} role="tab" aria-selected={value === stage}
+                className={value === stage ? 'active' : ''}
+                style={value === stage ? { borderColor: stageTint(stage), color: stageTint(stage) } : undefined}
+                onClick={() => onChange(stage)}>
+          {stageLabel(stage, locale)}
+        </button>
+      ))}
+    </div>
   )
 }
 

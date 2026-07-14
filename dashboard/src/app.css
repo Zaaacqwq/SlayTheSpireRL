@@ -355,3 +355,24 @@ details summary { cursor: pointer; color: var(--ink-3); font-size: 12px; margin-
   color: var(--ink-3); font-size: 12.5px;
   padding-top: 10px;
 }
+
+/* ── Stage picker ──────────────────────────────────── */
+/* Curriculum stages are not comparable quantities: a combat stage is one fight on
+   floor 1 (avg_floor pinned at 1.0, no boss funnel, win rate ~0.8) while a full run
+   averages floor ~11 and wins ~10%. Charting them together flattens the only curve
+   that carries signal, so they are viewed one at a time. */
+.stage-picker {
+  display: flex; gap: 6px; flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.stage-picker button {
+  background: var(--surface); color: var(--ink-3);
+  border: 1px solid var(--line); border-radius: 999px;
+  padding: 4px 12px; font-size: 12.5px; cursor: pointer;
+  transition: color .12s, border-color .12s;
+}
+.stage-picker button:hover { color: var(--ink-2); }
+.stage-picker button.active {
+  color: var(--ink); border-color: var(--ink-3);
+  background: var(--surface-2);
+}

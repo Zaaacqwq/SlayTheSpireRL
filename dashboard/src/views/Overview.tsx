@@ -1,18 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Activity, Database, Layers3, Settings2, TrendingUp } from 'lucide-react'
 import { fetchMetrics, fetchTimeline } from '../api'
-import { num, pct, stageLabel, stageTint } from '../format'
+import { isRunStage, num, pct, stageLabel, stageTint } from '../format'
 import type { MetricRow, Run, TimelineItem } from '../types'
 import { FloorChart, MiniChart, StageLegend, WinRateChart, stageSegments } from '../components/charts'
-import { Empty, Panel, StatTile } from '../components/ui'
+import { Empty, Panel, StagePicker, StatTile } from '../components/ui'
 import { useI18n } from '../i18n'
+import { useStageFilter } from '../useStageFilter'
 
 export function Overview({ run, onInspectIteration }: {
   run: Run
   onInspectIteration: (iteration: number) => void
 }) {
   const { t, locale } = useI18n()
-  const [metrics, setMetrics] = useState<MetricRow[]>([])
+  const [allMetrics, setMetrics] = useState<MetricRow[]>([])
   const [timeline, setTimeline] = useState<TimelineItem[]>([])
 
   useEffect(() => {
@@ -22,6 +23,7 @@ export function Overview({ run, onInspectIteration }: {
     // history_count/episode_count advance during live training, refreshing charts.
   }, [run.name, run.history_count, run.episode_count])
 
+  const { stages, stage, setStage, metrics } = useStageFilter(allMetrics)
   const segments = useMemo(() => stageSegments(metrics), [metrics])
   const latest = metrics[metrics.length - 1]
   const bestDev = useMemo(() => {
@@ -29,8 +31,13 @@ export function Overview({ run, onInspectIteration }: {
     return rows.length ? rows.reduce((a, b) => (b.dev_win_rate as number) > (a.dev_win_rate as number) ? b : a) : undefined
   }, [metrics])
   const replayGroups = timeline.filter(item => item.split === 'replay' && item.iteration !== null)
+  // A combat stage is one fight on floor 1: its avg_floor is the constant 1.0, so
+  // the floor chart is noise there and would flatten act1's curve if mixed in.
+  const showFloors = stage === '' ? stages.some(isRunStage) : isRunStage(stage)
 
   return <>
+    <StagePicker stages={stages} value={stage} onChange={setStage} allLabel={t('stage.all')} />
+
     <div className="tile-row">
       <StatTile
         label={t('overview.stage')}
@@ -65,9 +72,15 @@ export function Overview({ run, onInspectIteration }: {
         <StageLegend segments={segments} />
         <WinRateChart rows={metrics} segments={segments} />
       </Panel>
-      <Panel icon={<Activity />} title={t('overview.floorChart')} tip={t('tip.avgFloor')}>
-        <FloorChart rows={metrics} segments={segments} />
-      </Panel>
+      {showFloors ? (
+        <Panel icon={<Activity />} title={t('overview.floorChart')} tip={t('tip.avgFloor')}>
+          <FloorChart rows={metrics} segments={segments} />
+        </Panel>
+      ) : (
+        <Panel icon={<Activity />} title={t('overview.floorChart')} tip={t('tip.avgFloor')}>
+          <Empty text={t('stage.noFloors')} />
+        </Panel>
+      )}
     </div>
 
     <div className="mini-grid">

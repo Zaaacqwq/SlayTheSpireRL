@@ -58,3 +58,12 @@ test('charts every action type the run reports, so a structural zero is visible'
   expect(await screen.findByText('use_potion')).toBeInTheDocument()
   expect(screen.getByText('play_card')).toBeInTheDocument()
 })
+
+test('hides the boss funnel on a combat stage, where it is undefined', async () => {
+  // combat stages spawn the fight next to the boss; "reached the boss" is meaningless
+  mockMetrics([
+    { iteration: 0, stage: 'boss_combat', win_return: 1, loss_return: -1, inverted: 0 },
+  ])
+  view()
+  expect(await screen.findByText(/整局|full run/i)).toBeInTheDocument()
+})

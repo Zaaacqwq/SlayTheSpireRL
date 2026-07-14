@@ -7,6 +7,10 @@ const EN: Record<string, string> = {
   'brand.name': 'Spire RL', 'brand.subtitle': 'Training Observatory',
   'nav.overview': 'Overview', 'nav.diagnostics': 'Diagnostics', 'nav.episodes': 'Episodes', 'nav.replay': 'Replay', 'nav.live': 'Live Workers',
 
+  'stage.all': 'All stages',
+  'stage.noFloors': 'A combat stage is one fight spawned on floor 1, so its average floor is the constant 1.0. Pick a full-run stage to see the floor curve.',
+  'stage.noFunnel': 'Only a full run can walk to a boss. Combat stages start next to one.',
+
   'diag.rewardHealth': 'Reward health — is winning worth more than losing?',
   'diag.invertedTitle': 'REWARD INVERTED — the policy is being taught to lose.',
   'diag.invertedBody': 'Losing returned at least as much as winning on {count} iteration(s). Stop training and fix the reward before reading anything else on this page.',
@@ -100,6 +104,10 @@ const EN: Record<string, string> = {
 const ZH: Record<string, string> = {
   'brand.name': '尖塔 RL', 'brand.subtitle': '训练观测台',
   'nav.overview': '训练总览', 'nav.diagnostics': '诊断', 'nav.episodes': '对局档案', 'nav.replay': '对局复盘', 'nav.live': '实时操作',
+
+  'stage.all': '全部阶段',
+  'stage.noFloors': '战斗阶段是在第 1 层生成的单场战斗，平均楼层恒为 1.0，画出来没有意义。选一个整局阶段才能看到真实的楼层曲线。',
+  'stage.noFunnel': '只有整局才谈得上"走到 boss"。战斗阶段是直接开在 boss 面前的。',
 
   'diag.rewardHealth': '奖励健康度 —— 赢是否比输更值？',
   'diag.invertedTitle': '奖励反转 —— 策略正在被训练去输。',

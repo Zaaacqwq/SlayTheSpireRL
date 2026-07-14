@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Crosshair, Swords } from 'lucide-react'
 import { fetchMetrics } from '../api'
-import { num, pct } from '../format'
+import { isRunStage, num, pct } from '../format'
 import type { MetricRow, Run } from '../types'
 import { MetricChart, SERIES, stageSegments, type SeriesSpec } from '../components/charts'
-import { Empty, Panel } from '../components/ui'
+import { Empty, Panel, StagePicker } from '../components/ui'
 import { useI18n } from '../i18n'
+import { useStageFilter } from '../useStageFilter'
 
 /* The instruments that were missing while two bugs survived from M1 to v5:
  *  - nothing compared the return of a win against the return of a loss, so a
@@ -20,14 +21,17 @@ const ACTION_PREFIX = 'action_'
 
 export function Diagnostics({ run }: { run: Run }) {
   const { t } = useI18n()
-  const [metrics, setMetrics] = useState<MetricRow[]>([])
+  const [allMetrics, setMetrics] = useState<MetricRow[]>([])
 
   useEffect(() => {
     if (run.name === 'legacy') { setMetrics([]); return }
     void fetchMetrics(run.name).then(data => setMetrics(data.rows)).catch(() => setMetrics([]))
   }, [run.name, run.history_count])
 
+  const { stages, stage, setStage, metrics } = useStageFilter(allMetrics)
   const segments = useMemo(() => stageSegments(metrics), [metrics])
+  // Only a full run can reach a boss it did not start next to.
+  const showFunnel = stage === '' ? stages.some(isRunStage) : isRunStage(stage)
 
   const inverted = useMemo(
     () => metrics.filter(row => Number(row.inverted) === 1),
@@ -54,9 +58,11 @@ export function Diagnostics({ run }: { run: Run }) {
     }))
   }, [metrics])
 
-  if (!metrics.length) return <Empty text={t('chart.noMetrics')} />
+  if (!allMetrics.length) return <Empty text={t('chart.noMetrics')} />
 
   return <>
+    <StagePicker stages={stages} value={stage} onChange={setStage} allLabel={t('stage.all')} />
+
     <Panel
       icon={inverted.length ? <AlertTriangle /> : <CheckCircle2 />}
       title={t('diag.rewardHealth')}
@@ -88,15 +94,17 @@ export function Diagnostics({ run }: { run: Run }) {
     </Panel>
 
     <Panel icon={<Swords />} title={t('diag.bossFunnel')} tip={t('tip.bossFunnel')}>
-      <MetricChart rows={metrics} segments={segments} height={200} percent series={[
-        { key: 'reached_boss_rate', name: t('diag.reached'), color: SERIES.yellow },
-        { key: 'boss_conversion', name: t('diag.converted'), color: SERIES.aqua },
-        { key: 'boss_replay_win_rate', name: t('diag.bossReplay'), color: SERIES.violet },
-      ]} />
-      <div className="funnel-note">{t('diag.funnelNote', {
-        reached: pct(lastOf(metrics, 'reached_boss_rate')),
-        converted: pct(lastOf(metrics, 'boss_conversion')),
-      })}</div>
+      {showFunnel ? <>
+        <MetricChart rows={metrics} segments={segments} height={200} percent series={[
+          { key: 'reached_boss_rate', name: t('diag.reached'), color: SERIES.yellow },
+          { key: 'boss_conversion', name: t('diag.converted'), color: SERIES.aqua },
+          { key: 'boss_replay_win_rate', name: t('diag.bossReplay'), color: SERIES.violet },
+        ]} />
+        <div className="funnel-note">{t('diag.funnelNote', {
+          reached: pct(lastOf(metrics, 'reached_boss_rate')),
+          converted: pct(lastOf(metrics, 'boss_conversion')),
+        })}</div>
+      </> : <Empty text={t('stage.noFunnel')} />}
     </Panel>
   </>
 }
