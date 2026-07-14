@@ -95,9 +95,23 @@ def legal_actions(state: Mapping[str, Any]) -> tuple[ActionCandidate, ...]:
                 out.extend(ActionCandidate("play_card", {**base, "target_index": e["index"]}) for e in enemies)
             else:
                 out.append(ActionCandidate("play_card", base))
-        for potion in state.get("potions", []):
-            if potion.get("can_use", False):
-                out.append(ActionCandidate("use_potion", {"potion_index": potion["index"]}))
+        # Potions live under ``player``, never at the top level, and they carry no
+        # ``can_use`` flag. Reading ``state["potions"]`` and gating on ``can_use``
+        # meant no ``use_potion`` candidate was ever produced: every policy from v1
+        # to v5 walked into the Act 1 boss holding a median of three potions it
+        # could not drink. The engine itself is fine (RunSimulator.DoUsePotion) and
+        # is fail-soft about unusable potions, so offering them all is safe; it does
+        # require ``target_index`` for AnyEnemy potions whenever several enemies are
+        # alive, exactly like play_card above.
+        player_potions = (state.get("player") or {}).get("potions") or state.get("potions") or []
+        for potion in player_potions:
+            if potion.get("can_use") is False:
+                continue
+            base = {"potion_index": potion["index"]}
+            if potion.get("target_type") == "AnyEnemy":
+                out.extend(ActionCandidate("use_potion", {**base, "target_index": e["index"]}) for e in enemies)
+            else:
+                out.append(ActionCandidate("use_potion", base))
         out.append(ActionCandidate("end_turn", {}))
     elif phase == "map_select":
         nodes = state.get("available_nodes", state.get("choices", state.get("options", [])))
