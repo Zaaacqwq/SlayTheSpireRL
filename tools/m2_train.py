@@ -23,6 +23,7 @@ import torch
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "rl" / "src"))
 from sts2rl.agent import PolicyAgent
+from sts2rl.artifacts import EpisodeArtifactWriter, IncrementalHistoryWriter
 from sts2rl.batch_inference import BatchedAgent
 from sts2rl.checkpoint import load_checkpoint, save_checkpoint
 from sts2rl.curriculum import CurriculumStage, Loadout, ironclad_stages
@@ -94,7 +95,7 @@ def collect_iteration(
 def evaluate_stage(
     clients: list[EngineClient], stage: CurriculumStage, seeds: list[str],
     agent, config: PPOConfig,
-) -> dict[str, float]:
+) -> tuple[dict[str, float], list]:
     records = []
     lock = None if isinstance(agent, BatchedAgent) else threading.Lock()
     buckets = [seeds[i::len(clients)] for i in range(len(clients))]
@@ -116,7 +117,7 @@ def evaluate_stage(
         "avg_floor": round(sum(r.final_floor for r in records) / max(len(records), 1), 2),
         "errors": errors,
         "episodes": len(records),
-    }
+    }, records
 
 
 def main() -> int:
@@ -138,6 +139,10 @@ def main() -> int:
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--device", default="cpu", help="cpu / cuda / mps")
     parser.add_argument("--runs-root", type=Path, default=REPO_ROOT / "rl" / "runs")
+    parser.add_argument("--record-train-every", type=int, default=10,
+                        help="record full train episodes every N iterations (0 disables)")
+    parser.add_argument("--record-train-episodes", type=int, default=8,
+                        help="max train episodes recorded per sampled iteration")
     args = parser.parse_args()
 
     if not os.environ.get("STS2_GAME_DIR"):
@@ -168,6 +173,8 @@ def main() -> int:
     run_dir = args.runs_root / args.run_name
     run_dir.mkdir(parents=True, exist_ok=True)
     logger = ExperimentLogger(run_dir / "tb")
+    episode_writer = EpisodeArtifactWriter(run_dir)
+    history_writer = IncrementalHistoryWriter(run_dir / "history.jsonl")
     (run_dir / "config.json").write_text(json.dumps({
         **vars(args), "resume": str(args.resume) if args.resume else None,
         "ppo": config.__dict__, "vocab_size": vocab.size,
@@ -217,6 +224,13 @@ def main() -> int:
                     break
             start = time.perf_counter()
             records = collect_iteration(clients, stage, seeds, agent, config)
+            # Full step-level records are large; sample train iterations so an
+            # 800-iteration run stays browsable without flooding the disk.
+            if args.record_train_every and iteration % args.record_train_every == 0:
+                episode_writer.write_many(
+                    records[: args.record_train_episodes], iteration=iteration,
+                    stage=stage.name, split="train", character="Ironclad",
+                )
             errors = sum(r.error is not None for r in records)
             if errors / max(len(records), 1) > MAX_EPISODE_ERROR_RATE:
                 for r in records:
@@ -238,13 +252,18 @@ def main() -> int:
                 "seconds": round(time.perf_counter() - start, 1),
             }
             history.append(row)
+            history_writer.append(row)
             print(json.dumps(row))
             for key in ("train_win_rate", "avg_floor", "loss", "policy_loss", "value_loss", "entropy"):
                 logger.scalar(f"{stage.name}/{key}", float(row[key]), iteration)
 
             if (iteration + 1) % args.eval_every == 0:
-                evaluation = evaluate_stage(
+                evaluation, evaluation_records = evaluate_stage(
                     clients, stage, dev_seeds[: args.eval_episodes], agent, config,
+                )
+                episode_writer.write_many(
+                    evaluation_records, iteration=iteration, stage=stage.name,
+                    split="dev", character="Ironclad",
                 )
                 logger.scalar(f"{stage.name}/dev_win_rate", evaluation["win_rate"], iteration)
                 print(json.dumps({"iteration": iteration, "dev": evaluation, "stage": stage.name}))
@@ -264,9 +283,6 @@ def main() -> int:
             agent.close()
         for client in clients:
             client.close()
-        (run_dir / "history.jsonl").write_text(
-            "\n".join(json.dumps(row) for row in history) + "\n", encoding="utf-8",
-        )
         logger.close()
     return 0
 
