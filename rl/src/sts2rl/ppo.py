@@ -17,7 +17,7 @@ import torch
 from .agent import PolicyAgent, entities_global
 from .curriculum import CurriculumStage, episode_config
 from .engine import CombatConfig, EngineClient
-from .entities import EntityVocab, candidate_entity_slots, encode_entity_batch
+from .entities import EntityVocab, MAX_CANDIDATE_BINDINGS, candidate_entity_bindings, encode_entity_batch
 from .features import encode_candidates
 from .losses import generalized_advantage_estimate, ppo_clipped_loss
 from .observation import normalize_state
@@ -42,6 +42,8 @@ class PPOConfig:
     max_episode_steps: int = 600
     floor_shaping: bool = True  # terminal-only ablation sets this False
     max_grad_norm: float = 0.5
+    target_kl: float | None = None
+    hard_kl_stop: float | None = None
 
 
 @dataclass
@@ -264,8 +266,10 @@ def encode_update_batch(steps: Sequence[StoredStep], vocab: EntityVocab, hidden_
         padding = width - encoded.shape[0]
         candidate_rows.append(torch.nn.functional.pad(encoded, (0, 0, 0, padding)))
         masks.append(torch.tensor([True] * encoded.shape[0] + [False] * padding))
-        slots = candidate_entity_slots(observation, s.candidates)
-        slot_rows.append(torch.tensor(slots + [-1] * padding, dtype=torch.long))
+        slots = candidate_entity_bindings(observation, s.candidates)
+        slot_rows.append(torch.tensor(
+            slots + [[-1] * MAX_CANDIDATE_BINDINGS] * padding, dtype=torch.long,
+        ))
     hiddens = torch.stack([
         torch.zeros(hidden_size) if s.hidden is None
         else torch.tensor(s.hidden, dtype=torch.float32)
@@ -295,7 +299,11 @@ def ppo_update_epoch(
         advantages.extend(record.advantages)
         returns.extend(record.returns)
     if not steps:
-        return {"loss": 0.0, "policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0}
+        return {
+            "loss": 0.0, "policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0,
+            "approx_kl": 0.0, "clip_fraction": 0.0, "grad_norm": 0.0,
+            "grad_norm_clipped": 0.0, "explained_variance": 0.0,
+        }
     advantage_tensor = torch.tensor(advantages, dtype=torch.float32)
     if advantage_tensor.numel() > 1 and float(advantage_tensor.std()) > 1e-8:
         advantage_tensor = (advantage_tensor - advantage_tensor.mean()) / (advantage_tensor.std() + 1e-8)
@@ -305,7 +313,11 @@ def ppo_update_epoch(
     advantage_tensor = advantage_tensor.to(device)
     return_tensor = return_tensor.to(device)
     order = torch.randperm(len(steps), generator=generator)
-    totals = {"loss": 0.0, "policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0}
+    totals = {
+        "loss": 0.0, "policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0,
+        "approx_kl": 0.0, "clip_fraction": 0.0, "grad_norm": 0.0,
+        "grad_norm_clipped": 0.0, "explained_variance": 0.0,
+    }
     batches = 0
     for start in range(0, len(steps), config.minibatch_size):
         chosen = order[start:start + config.minibatch_size].tolist()
@@ -321,6 +333,8 @@ def ppo_update_epoch(
         )
         log_probs = torch.log_softmax(logits, dim=-1)
         new_logp = log_probs.gather(-1, batch["actions"].unsqueeze(-1)).squeeze(-1)
+        log_ratio = new_logp - batch["old_logp"]
+        ratio = log_ratio.exp()
         policy_loss = ppo_clipped_loss(
             batch["old_logp"], new_logp, advantage_tensor[chosen], config.clip,
         )
@@ -330,11 +344,26 @@ def ppo_update_epoch(
         loss = policy_loss + config.value_coef * value_loss - config.entropy_coef * entropy
         optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), config.max_grad_norm)
+        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), config.max_grad_norm)
+        clipped_sq = sum(
+            float(parameter.grad.detach().norm(2)) ** 2
+            for parameter in model.parameters() if parameter.grad is not None
+        )
         optimizer.step()
         totals["loss"] += float(loss.detach())
         totals["policy_loss"] += float(policy_loss.detach())
         totals["value_loss"] += float(value_loss.detach())
         totals["entropy"] += float(entropy.detach())
+        totals["approx_kl"] += float(((ratio - 1.0) - log_ratio).mean().detach())
+        totals["clip_fraction"] += float(((ratio - 1.0).abs() > config.clip).float().mean().detach())
+        totals["grad_norm"] += float(grad_norm.detach())
+        totals["grad_norm_clipped"] += clipped_sq ** 0.5
+        target_returns = return_tensor[chosen]
+        variance = torch.var(target_returns, unbiased=False)
+        explained = (
+            1.0 - torch.var(target_returns - values.detach(), unbiased=False) / variance
+            if float(variance) > 1e-8 else torch.tensor(0.0, device=device)
+        )
+        totals["explained_variance"] += float(explained.detach())
         batches += 1
     return {k: v / max(batches, 1) for k, v in totals.items()}

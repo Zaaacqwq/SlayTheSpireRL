@@ -268,3 +268,19 @@ P5 验收      ❌
 **制度性补救**（已实施）：`sts2rl.telemetry` 每个迭代自动计算并落盘——赢/输回报对比（违反即向 stderr 尖叫）、各类动作占比（恒为 0 = 策略够不到它）、boss 漏斗（`avg_floor` 会掩盖真相）。Diagnostics 视图把它们放在无法忽略的位置。
 
 **给未来的规则：一个 P 阶段被标记为「完成」，不代表它被验证过。表征修得再好，也只是让策略更高效地走向一个错误的目标——先确认目标是对的。**
+
+#### v7 — 大模型不是可见性修复 · 主动停止并审计
+
+**改的是模型容量 + P4 吞吐** · `hidden=256 / layers=4 / heads=8` · iteration 123 主动停止
+
+旧 `m2_v7_h256` 从零训练，参数量约为 v6 的 5.7 倍。normal/mixed/boss 很快晋级，Act 1 dev 最佳 8%，随后 avg_floor 从 11.54 降到 6.04。run 于 Windows 15.625ms 等待问题修复时主动停止；性能修复语义不变，不能解释策略退化。
+
+停止后首次对模型输入本身做全轨迹可见性审计（704 artifact、58,301 决策），发现 shop 完全不可购买/删卡、card-select 多选候选碰撞、bundle 内容全为 `UNK`、目标敌人无指针、power amount/intent/boss/完整地图/卡牌改造/目标实际伤害不可见，且 unknown/offered 告警未接入训练。旧 v7 checkpoint 不再续训；保留大模型方向，以 [`v7_clean_plan.md`](v7_clean_plan.md) 重建可见性契约并从头训练。
+
+#### v7-clean — P1–P3 可见性防火墙完成（2026-07-14）
+
+完成 shop 购买/删卡动作、bundle 内容、多选集合、目标敌人/目标实际伤害绑定；补入敌我 power、intent、boss、完整地图、orb/slot、enchantment/affliction、事件稳定变量与 13 维归一化 global。候选可绑定最多 16 个语义实体，模型对绑定集合做 masked pooling。
+
+词表改为完整 ModelDb 目录 + 真实引擎 sweep + 审核 smoke 增量生成，共 2,296 个稳定实体。累计 `visibility_audit.json` 覆盖 285 个 episode、17,366 个决策，15 类动作全部 offered/chosen；collision、pointer miss、unknown field/entity、non-finite 和 violations 全为 0。最终 256×4×8 smoke 完成 PPO 更新：KL 0.00474、clip fraction 0.0574、grad norm 0.922→0.440、explained variance 0.0254。旧 v7 checkpoint 继续冻结；正式 `m2_v7_clean_init0` 尚未启动，下一步做 LR 短程对照。
+
+external 协议扩展已固定为 `e1a0688e2d873ddfe5bd8dd898369b7749d5c54c`。完整 external suite 在修复测试夹具 stderr 管道阻塞后完成：70 passed；2 个旧 save/load 用例失败于当前游戏构建的 `RelicGrabBag` 重复 Populate，记录为与训练路径分离的兼容遗留项。

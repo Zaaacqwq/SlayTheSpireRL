@@ -14,6 +14,7 @@ from sts2rl.entities import (
     phase_id,
 )
 from sts2rl.observation import normalize_state
+from sts2rl.observation import GLOBAL_FEATURE_DIM
 
 
 COMBAT_STATE = {
@@ -215,9 +216,149 @@ def test_pointer_gather_changes_logits():
     slots = torch.tensor([candidate_entity_slots(obs, candidates)])
     model = EntityTransformerPolicy(vocab_size=vocab.size, hidden=32, heads=2, layers=1)
     with torch.no_grad():
-        with_gather, _ = model(torch.zeros(1, 12), entities, features, candidate_slots=slots)
-        without_gather, _ = model(torch.zeros(1, 12), entities, features)
+        with_gather, _ = model(torch.zeros(1, GLOBAL_FEATURE_DIM), entities, features, candidate_slots=slots)
+        without_gather, _ = model(torch.zeros(1, GLOBAL_FEATURE_DIM), entities, features)
     assert not torch.allclose(with_gather, without_gather)
+
+
+def test_targeted_candidates_bind_the_enemy_and_per_target_damage():
+    from sts2rl.entities import candidate_entity_bindings
+    from sts2rl.features import encode_candidates
+    from sts2rl.model import EntityTransformerPolicy
+    from sts2rl.protocol import ActionCandidate
+
+    state = {
+        **COMBAT_STATE,
+        "hand": [{
+            **COMBAT_STATE["hand"][0],
+            "damage_by_target": [
+                {"target_index": 0, "damage": 6},
+                {"target_index": 1, "damage": 11},
+            ],
+        }],
+        "enemies": [
+            {**COMBAT_STATE["enemies"][0], "index": 0, "id": "MONSTER.A", "hp": 55},
+            {**COMBAT_STATE["enemies"][0], "index": 1, "id": "MONSTER.B", "hp": 9},
+        ],
+    }
+    candidates = (
+        ActionCandidate("play_card", {"card_index": 0, "target_index": 0}),
+        ActionCandidate("play_card", {"card_index": 0, "target_index": 1}),
+    )
+    observation = normalize_state(state)
+    bindings = candidate_entity_bindings(observation, candidates)
+    bound_entities = [
+        [observation.entities[index] for index in row if index >= 0]
+        for row in bindings
+    ]
+    assert [next(e["id"] for e in row if e["entity_type"] == "enemy")
+            for row in bound_entities] == ["MONSTER.A", "MONSTER.B"]
+    assert [next(e["damage"] for e in row if e["entity_type"] == "card_target")
+            for row in bound_entities] == [6, 11]
+
+    # Counterfactual gate: with identical candidate feature rows, changing only
+    # the bound target/content still changes the pointer score.
+    torch.manual_seed(0)
+    vocab = EntityVocab.from_states([state])
+    encoded = encode_entity_batch([observation], vocab)
+    model = EntityTransformerPolicy(vocab_size=vocab.size, hidden=32, heads=2, layers=1)
+    features = encode_candidates(candidates).unsqueeze(0)
+    features[:, 1] = features[:, 0]
+    with torch.no_grad():
+        logits, _ = model(
+            torch.zeros(1, GLOBAL_FEATURE_DIM), encoded, features,
+            candidate_slots=torch.tensor([bindings]),
+        )
+    assert logits[0, 0] != pytest.approx(float(logits[0, 1]))
+
+
+def test_multiselect_bundle_shop_and_event_candidates_bind_their_contents():
+    from sts2rl.entities import candidate_entity_bindings
+    from sts2rl.protocol import ActionCandidate
+
+    state = {
+        "decision": "card_select",
+        "cards": [
+            {"index": 0, "id": "CARD.A", "stats": {"damage": 1}},
+            {"index": 1, "id": "CARD.B", "stats": {"block": 2}},
+            {"index": 2, "id": "CARD.C", "stats": {"damage": 3}},
+        ],
+        "player": {"hp": 10},
+    }
+    observation = normalize_state(state)
+    candidates = (
+        ActionCandidate("select_cards", {"indices": "0,1"}),
+        ActionCandidate("select_cards", {"indices": "0,2"}),
+    )
+    bindings = candidate_entity_bindings(observation, candidates)
+    selected = [
+        {observation.entities[i]["id"] for i in row if i >= 0
+         and observation.entities[i]["entity_type"] == "card"}
+        for row in bindings
+    ]
+    assert selected == [{"CARD.A", "CARD.B"}, {"CARD.A", "CARD.C"}]
+
+    bundle_state = {
+        "decision": "bundle_select",
+        "bundles": [
+            {"index": 0, "cards": [{"id": "CARD.A"}, {"id": "CARD.B"}]},
+            {"index": 1, "cards": [{"id": "CARD.C"}]},
+        ],
+        "player": {"hp": 10},
+    }
+    bundle_obs = normalize_state(bundle_state)
+    bundle_bindings = candidate_entity_bindings(bundle_obs, (
+        ActionCandidate("select_bundle", {"bundle_index": 0}),
+        ActionCandidate("select_bundle", {"bundle_index": 1}),
+    ))
+    bundle_cards = [
+        {bundle_obs.entities[i]["id"] for i in row if i >= 0
+         and bundle_obs.entities[i]["entity_type"] == "bundle_card"}
+        for row in bundle_bindings
+    ]
+    assert bundle_cards == [{"CARD.A", "CARD.B"}, {"CARD.C"}]
+
+    shop_state = {
+        "decision": "shop",
+        "cards": [{"index": 4, "id": "CARD.SHOP", "stats": {"damage": 8}}],
+        "relics": [{"index": 5, "id": "RELIC.SHOP"}],
+        "potions": [{"index": 6, "id": "POTION.SHOP"}],
+        "player": {"hp": 10},
+    }
+    shop_obs = normalize_state(shop_state)
+    shop_bindings = candidate_entity_bindings(shop_obs, (
+        ActionCandidate("buy_card", {"card_index": 4}),
+        ActionCandidate("buy_relic", {"relic_index": 5}),
+        ActionCandidate("buy_potion", {"potion_index": 6}),
+    ))
+    assert [shop_obs.entities[row[0]]["id"] for row in shop_bindings] == [
+        "CARD.SHOP", "RELIC.SHOP", "POTION.SHOP",
+    ]
+
+    event_state = {
+        "decision": "event_choice",
+        "options": [{
+            "index": 0, "text_key": "EVENT.OPTION", "vars": {
+                "RandomCard": "Strike", "RandomCardId": "CARD.STRIKE_IRONCLAD",
+            },
+        }],
+        "player": {"hp": 10},
+    }
+    event_obs = normalize_state(event_state)
+    event_binding = candidate_entity_bindings(event_obs, (
+        ActionCandidate("choose_option", {"option_index": 0}),
+    ))[0]
+    ids = {event_obs.entities[i]["id"] for i in event_binding if i >= 0}
+    assert "EVENT_VAR.RandomCardId.CARD.STRIKE_IRONCLAD" in ids
+
+
+def test_shop_stock_and_affordability_are_numeric_features():
+    from sts2rl.entities import _entity_numeric
+
+    unavailable = _entity_numeric({"cost": 50, "is_stocked": False, "affordable": False})
+    available = _entity_numeric({"cost": 50, "is_stocked": True, "affordable": True})
+    assert unavailable[-2:] == (0.0, 0.0)
+    assert available[-2:] == (1.0, 1.0)
 
 
 CARD_REWARD_STATE = {

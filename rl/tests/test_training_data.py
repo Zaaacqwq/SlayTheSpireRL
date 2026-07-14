@@ -101,6 +101,23 @@ def test_potion_and_relic_candidates_are_distinguishable():
     assert p0 != p1
 
 
+def test_multi_card_selections_are_distinguishable():
+    from sts2rl.features import encode_candidate
+    a = encode_candidate(ActionCandidate("select_cards", {"indices": "0,1"}))
+    b = encode_candidate(ActionCandidate("select_cards", {"indices": "0,2"}))
+    assert a != b
+
+
+def test_shop_actions_have_distinct_action_features():
+    from sts2rl.features import encode_candidate
+    actions = [
+        ActionCandidate("buy_card", {"card_index": 0}),
+        ActionCandidate("buy_relic", {"relic_index": 0}),
+        ActionCandidate("buy_potion", {"potion_index": 0}),
+    ]
+    assert len({encode_candidate(action) for action in actions}) == len(actions)
+
+
 def test_map_choice_entities_embed_room_type():
     from sts2rl.entities import entity_key
     assert entity_key({"col": 0, "row": 1, "type": "Rest", "entity_type": "choice", "id": "UNK"}) == "Rest"

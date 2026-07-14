@@ -14,13 +14,16 @@ from .protocol import ActionCandidate, ProtocolError
 ACTION_TYPES: tuple[str, ...] = (
     "play_card", "end_turn", "use_potion", "select_card_reward", "skip_card_reward",
     "select_cards", "skip_select", "select_bundle", "choose_option", "select_map_node",
-    "remove_card", "leave_room",
+    "buy_card", "buy_relic", "buy_potion", "remove_card", "leave_room",
 )
 ACTION_INDEX: Mapping[str, int] = {name: index for index, name in enumerate(ACTION_TYPES)}
 
 # one-hot(action) + card_index + target_index + option/bundle/node/potion/relic
-# index + argument arity + map col + map row
-CANDIDATE_FEATURE_DIM = len(ACTION_TYPES) + 6
+# index + argument arity + map col + map row + up to four selected-card indices.
+# The explicit selection slots prevent "0,1" and "2,3" from both falling through
+# float("comma,string") to the same -0.1 sentinel.
+MAX_SELECTED_CARDS = 4
+CANDIDATE_FEATURE_DIM = len(ACTION_TYPES) + 6 + MAX_SELECTED_CARDS
 
 _INDEX_SCALE = 10.0
 
@@ -41,9 +44,17 @@ def encode_candidate(candidate: ActionCandidate) -> tuple[float, ...]:
     one_hot = [0.0] * len(ACTION_TYPES)
     one_hot[ACTION_INDEX[candidate.action]] = 1.0
     args = candidate.args or {}
+    selected = [-1.0 / _INDEX_SCALE] * MAX_SELECTED_CARDS
+    if "indices" in args:
+        values = str(args["indices"]).split(",")
+        for i, value in enumerate(values[:MAX_SELECTED_CARDS]):
+            try:
+                selected[i] = float(value.strip()) / _INDEX_SCALE
+            except (TypeError, ValueError):
+                raise ProtocolError(f"invalid selected-card index: {value!r}")
     return (
         *one_hot,
-        _slot(args, "card_index", "indices"),
+        _slot(args, "card_index"),
         _slot(args, "target_index"),
         _slot(args, "option_index", "bundle_index", "node_index", "potion_index", "relic_index"),
         float(len(args)),
@@ -51,6 +62,7 @@ def encode_candidate(candidate: ActionCandidate) -> tuple[float, ...]:
         # select_map_node candidate encoded identically and routing was blind.
         _slot(args, "col"),
         _slot(args, "row"),
+        *selected,
     )
 
 

@@ -31,6 +31,19 @@ def test_upstream_action_names_are_used():
     assert shop[-1].action == "leave_room"
 
 
+def test_affordable_shop_inventory_and_removal_are_reachable():
+    state = {
+        "decision": "shop",
+        "cards": [{"index": 0, "id": "CARD.A", "affordable": True}],
+        "relics": [{"index": 1, "id": "RELIC.B", "affordable": True}],
+        "potions": [{"index": 2, "id": "POTION.C", "affordable": True}],
+        "can_remove_card": True,
+    }
+    assert [a.action for a in legal_actions(state)] == [
+        "buy_card", "buy_relic", "buy_potion", "remove_card", "leave_room",
+    ]
+
+
 def test_combat_card_reward_remains_skippable():
     # The from_event suppression below must not leak into ordinary combat rewards,
     # where skipping is a real choice rather than a no-op back into the same state.

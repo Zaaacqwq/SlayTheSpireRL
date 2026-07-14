@@ -21,22 +21,27 @@ ENTITY_KINDS: tuple[str, ...] = (
     "card", "enemy", "relic", "potion", "choice", "option", "power", "event",
     # Appended last so pre-deck checkpoints keep their type-embedding rows.
     "deck_card",
+    "enemy_power", "intent", "boss", "bundle_card", "card_target",
+    "card_stat", "orb", "enchantment", "affliction", "map_node",
+    "map_edge", "event_var",
 )
 _KIND_INDEX: Mapping[str, int] = {kind: index + 1 for index, kind in enumerate(ENTITY_KINDS)}
 
 # Kinds sharing another kind's id vocabulary: a Strike in the deck must hit the
 # same embedding as a Strike in hand, and candidate->entity slot matching stays
 # unambiguous because the kinds remain distinct.
-_VOCAB_KIND_ALIASES: Mapping[str, str] = {"deck_card": "card"}
+_VOCAB_KIND_ALIASES: Mapping[str, str] = {
+    "deck_card": "card", "bundle_card": "card", "enemy_power": "power",
+}
 
 PHASES: tuple[str, ...] = tuple(sorted(DECISIONS))
 _PHASE_INDEX: Mapping[str, int] = {phase: index for index, phase in enumerate(PHASES)}
 
 UNK_INDEX = 0
 
-# hp, max_hp, block, cost, stat_damage, stat_block, upgraded, can_play,
-# intends_attack, intent_damage, index, col, row
-ENTITY_NUMERIC_DIM = 13
+# Base combat fields followed by generic owner/value/graph fields used by nested
+# power, intent, bundle, map and per-target damage tokens.
+ENTITY_NUMERIC_DIM = 30
 _HP_SCALE = 100.0
 _SMALL_SCALE = 10.0
 
@@ -101,6 +106,23 @@ def _entity_numeric(entity: Mapping[str, Any]) -> tuple[float, ...]:
         number(entity.get("index")) / _SMALL_SCALE,
         number(entity.get("col")) / _SMALL_SCALE,
         number(entity.get("row")) / _SMALL_SCALE,
+        number(entity.get("amount")) / _SMALL_SCALE,
+        number(entity.get("hits", entity.get("repeat"))) / _SMALL_SCALE,
+        number(entity.get("total_damage")) / _HP_SCALE,
+        number(entity.get("passive")) / _SMALL_SCALE,
+        number(entity.get("evoke")) / _SMALL_SCALE,
+        number(entity.get("owner_index")) / _SMALL_SCALE,
+        number(entity.get("bundle_index")) / _SMALL_SCALE,
+        number(entity.get("card_index")) / _SMALL_SCALE,
+        number(entity.get("target_index")) / _SMALL_SCALE,
+        1.0 if entity.get("visited") else 0.0,
+        1.0 if entity.get("current") else 0.0,
+        number(entity.get("damage")) / _HP_SCALE,
+        number(entity.get("from_col")) / _SMALL_SCALE,
+        number(entity.get("from_row")) / _SMALL_SCALE,
+        number(entity.get("option_index")) / _SMALL_SCALE,
+        1.0 if entity.get("is_stocked") else 0.0,
+        1.0 if entity.get("affordable") else 0.0,
     ))
 
 
@@ -177,6 +199,100 @@ _CANDIDATE_ENTITY_REFS: Mapping[str, tuple[str, str]] = {
     "select_bundle": ("choice", "bundle_index"),
 }
 
+MAX_CANDIDATE_BINDINGS = 16
+
+
+def _find_entity(observation: NormalizedObservation, kind: str, field: str, wanted: Any) -> int:
+    for row, entity in enumerate(observation.entities):
+        if entity.get("entity_type") == kind and entity.get(field) == wanted:
+            return row
+    return -1
+
+
+def _append_card_facts(bound: list[int], observation: NormalizedObservation, card_index: Any) -> None:
+    for row, entity in enumerate(observation.entities):
+        if (entity.get("entity_type") in {
+                "card_stat", "enchantment", "affliction",
+            } and entity.get("card_index") == card_index
+                and entity.get("card_source") != "deck"):
+            bound.append(row)
+
+
+def candidate_entity_bindings(observation: NormalizedObservation, candidates) -> list[list[int]]:
+    """All semantic entities referenced by every candidate.
+
+    A single slot was enough for "play this card" but not for "play this card on
+    that enemy", a multi-card selection, or a bundle containing several cards.
+    The model pools these bindings per candidate.
+    """
+    rows: list[list[int]] = []
+    for candidate in candidates:
+        args = candidate.args or {}
+        bound: list[int] = []
+        ref = _CANDIDATE_ENTITY_REFS.get(candidate.action)
+        if ref is not None:
+            kind, arg = ref
+            slot = _find_entity(observation, kind, "index", args.get(arg))
+            if slot >= 0:
+                bound.append(slot)
+        elif candidate.action == "select_map_node":
+            for row, entity in enumerate(observation.entities):
+                if (entity.get("entity_type") == "choice"
+                        and entity.get("col") == args.get("col")
+                        and entity.get("row") == args.get("row")):
+                    bound.append(row)
+                    break
+        elif candidate.action == "select_cards":
+            for value in str(args.get("indices", "")).split(","):
+                if not value.strip():
+                    continue
+                try:
+                    wanted = int(value)
+                except ValueError:
+                    continue
+                slot = _find_entity(observation, "card", "index", wanted)
+                if slot >= 0:
+                    bound.append(slot)
+                    _append_card_facts(bound, observation, wanted)
+
+        # Attach facts that belong to the selected object, rather than asking
+        # attention to infer ownership from a small numeric index alone.
+        card_index = args.get("card_index")
+        if card_index is not None:
+            _append_card_facts(bound, observation, card_index)
+
+        if candidate.action == "choose_option":
+            for row, entity in enumerate(observation.entities):
+                if (entity.get("entity_type") == "event_var"
+                        and entity.get("option_index") == args.get("option_index")):
+                    bound.append(row)
+
+        if candidate.action in {"play_card", "use_potion"} and "target_index" in args:
+            target = _find_entity(observation, "enemy", "index", args["target_index"])
+            if target >= 0:
+                bound.append(target)
+            if candidate.action == "play_card":
+                for row, entity in enumerate(observation.entities):
+                    if (entity.get("entity_type") == "card_target"
+                            and entity.get("card_index") == args.get("card_index")
+                            and entity.get("card_source") == "hand"
+                            and entity.get("target_index") == args.get("target_index")):
+                        bound.append(row)
+                        break
+
+        if candidate.action == "select_bundle":
+            for row, entity in enumerate(observation.entities):
+                if (entity.get("entity_type") == "bundle_card"
+                        and entity.get("bundle_index") == args.get("bundle_index")):
+                    bound.append(row)
+
+        # Stable width keeps batching simple and makes an oversized new protocol
+        # shape fail visibly rather than silently truncating arbitrary content.
+        if len(bound) > MAX_CANDIDATE_BINDINGS:
+            raise ValueError(f"candidate {candidate.action} references {len(bound)} entities")
+        rows.append(bound + [-1] * (MAX_CANDIDATE_BINDINGS - len(bound)))
+    return rows
+
 
 def candidate_entity_slots(observation: NormalizedObservation, candidates) -> list[int]:
     """Entity row referenced by each candidate, -1 when there is none.
@@ -185,27 +301,7 @@ def candidate_entity_slots(observation: NormalizedObservation, candidates) -> li
     "take THIS card" is tied to that card's embedding instead of a bare index
     scalar the model would have to correlate with entity numerics on its own.
     """
-    slots: list[int] = []
-    for candidate in candidates:
-        args = candidate.args or {}
-        slot = -1
-        ref = _CANDIDATE_ENTITY_REFS.get(candidate.action)
-        if ref is not None:
-            kind, arg = ref
-            wanted = args.get(arg)
-            for row, entity in enumerate(observation.entities):
-                if entity.get("entity_type") == kind and entity.get("index") == wanted:
-                    slot = row
-                    break
-        elif candidate.action == "select_map_node":
-            for row, entity in enumerate(observation.entities):
-                if (entity.get("entity_type") == "choice"
-                        and entity.get("col") == args.get("col")
-                        and entity.get("row") == args.get("row")):
-                    slot = row
-                    break
-        slots.append(slot)
-    return slots
+    return [bindings[0] for bindings in candidate_entity_bindings(observation, candidates)]
 
 
 def encode_entity_batch(

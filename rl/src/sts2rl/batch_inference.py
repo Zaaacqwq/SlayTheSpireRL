@@ -16,7 +16,7 @@ from typing import Any, Mapping, Sequence
 import torch
 
 from .agent import AgentStep
-from .entities import EntityVocab, candidate_entity_slots, encode_entity_batch
+from .entities import EntityVocab, candidate_entity_bindings, encode_entity_batch
 from .features import encode_candidates
 from .model import EntityRecurrentPolicy
 from .observation import NormalizedObservation, normalize_state
@@ -153,8 +153,9 @@ class BatchedAgent:
             padding = width - encoded.shape[0]
             candidate_rows.append(torch.nn.functional.pad(encoded, (0, 0, 0, padding)))
             masks.append(torch.tensor([True] * encoded.shape[0] + [False] * padding))
-            slots = candidate_entity_slots(r.observation, r.candidates)
-            slot_rows.append(torch.tensor(slots + [-1] * padding, dtype=torch.long))
+            slots = candidate_entity_bindings(r.observation, r.candidates)
+            empty = [-1] * len(slots[0])
+            slot_rows.append(torch.tensor(slots + [empty] * padding, dtype=torch.long))
             hiddens.append(
                 torch.zeros(self.model.hidden_size) if r.hidden is None
                 else torch.tensor(r.hidden, dtype=torch.float32)

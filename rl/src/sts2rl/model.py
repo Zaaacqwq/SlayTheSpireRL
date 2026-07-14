@@ -82,11 +82,18 @@ class EntityTransformerPolicy(nn.Module):
         if candidate_slots is not None:
             # "Take THIS card" points at that card's transformer output; a bare
             # index scalar in the features is not reliably learnable.
+            if candidate_slots.ndim == 2:
+                candidate_slots = candidate_slots.unsqueeze(-1)
             safe = candidate_slots.clamp_min(0)
-            gathered = encoded_entities.gather(
-                1, safe.unsqueeze(-1).expand(-1, -1, encoded_entities.shape[-1])
+            expanded = encoded_entities.unsqueeze(1).expand(
+                -1, candidate_slots.shape[1], -1, -1,
             )
-            candidates = candidates + gathered * (candidate_slots >= 0).unsqueeze(-1)
+            gathered = expanded.gather(
+                2, safe.unsqueeze(-1).expand(-1, -1, -1, encoded_entities.shape[-1]),
+            )
+            binding_mask = (candidate_slots >= 0).unsqueeze(-1).to(gathered.dtype)
+            bound = (gathered * binding_mask).sum(2) / binding_mask.sum(2).clamp_min(1.0)
+            candidates = candidates + bound
         logits = self.pointer(torch.tanh(candidates + context.unsqueeze(-2))).squeeze(-1)
         if candidate_mask is not None:
             logits = logits.masked_fill(~candidate_mask, torch.finfo(logits.dtype).min)

@@ -5,9 +5,9 @@
 ## 固定架构决策
 
 - 训练后端只使用真实 `sts2.dll`；不重写游戏规则，不提交 DLL 或资产。
-- `external/sts2-cli` 是固定 commit 的 Git submodule；当前固定 fork commit `2f51640f11cbc9b55d54767131529bc7e56a991c`，基于上游 MIT。
+- `external/sts2-cli` 是固定 commit 的 Git submodule；v7-clean 当前固定 fork commit `e1a0688e2d873ddfe5bd8dd898369b7749d5c54c`，基于上游 MIT。
 - Python 接口为 `EngineClient.reset(RunConfig) -> DecisionState`、`step(ActionCandidate) -> StepResult`、`close()`；每 worker 一个持久进程，超时后重启。
-- 状态使用可变实体编码、phase embedding、GRU 历史、Transformer、动态候选 pointer head 和 value head；未知内容进入 `UNK` 并告警。
+- 状态使用可变实体编码、phase embedding、GRU 历史、Transformer、动态候选 pointer head 和 value head；推理层未知内容进入 `UNK` 并告警，正式训练在 PPO 更新前把该告警升级为 fail-fast。
 - 自定义 PyTorch Recurrent Masked PPO，支持 BC；默认 gamma 0.999、GAE 0.95、clip 0.2、AdamW。
 - full-run reward 为通关 +1、死亡 -1、加 `0.2 × potential-based` 楼层进度变化；保留 terminal-only ablation。能力只按未见 seed 通关率评价。
 - seed 以 SHA-256 稳定划分 train/development/test，正式 test 不参与选择。

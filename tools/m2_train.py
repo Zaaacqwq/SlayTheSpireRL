@@ -39,6 +39,7 @@ from sts2rl.model import EntityRecurrentPolicy
 from sts2rl.ppo import PPOConfig, finalize_episode, ppo_update_epoch, run_episode
 from sts2rl.seeds import split_seed
 from sts2rl.telemetry import action_mix, depth_profile, reward_health
+from sts2rl.visibility import visibility_audit
 
 # STS2_CLI_ROOT lets a secondary checkout (e.g. a git worktree without the
 # built submodule) borrow the primary checkout's engine build.
@@ -183,6 +184,10 @@ def main() -> int:
     parser.add_argument("--terminal-only", action="store_true", help="reward ablation: no floor shaping")
     parser.add_argument("--init-seed", type=int, default=0)
     parser.add_argument("--lr", type=float, default=3e-4)
+    parser.add_argument("--minibatch-size", type=int, default=256)
+    parser.add_argument("--update-epochs", type=int, default=4)
+    parser.add_argument("--target-kl", type=float, default=None)
+    parser.add_argument("--hard-kl-stop", type=float, default=None)
     parser.add_argument("--device", default="cpu", help="cpu / cuda / mps")
     parser.add_argument("--runs-root", type=Path, default=REPO_ROOT / "rl" / "runs")
     parser.add_argument("--record-train-every", type=int, default=10,
@@ -199,6 +204,8 @@ def main() -> int:
     parser.add_argument("--all-act-regions", action="store_true",
                         help="keep both Act 1 regions in the encounter pools; by default "
                              "only the region runs actually visit is trained on")
+    parser.add_argument("--allow-visibility-violations", action="store_true",
+                        help="diagnostic escape hatch; production training must leave this off")
     args = parser.parse_args()
     if not 0.0 <= args.boss_mix < 1.0:
         raise SystemExit("--boss-mix must be in [0, 1)")
@@ -216,6 +223,10 @@ def main() -> int:
     config = PPOConfig(
         learning_rate=args.lr,
         episodes_per_iteration=args.episodes_per_iteration,
+        minibatch_size=args.minibatch_size,
+        update_epochs=args.update_epochs,
+        target_kl=args.target_kl,
+        hard_kl_stop=args.hard_kl_stop,
         floor_shaping=not args.terminal_only,
     )
     device = torch.device(args.device)
@@ -324,10 +335,35 @@ def main() -> int:
                     if r.error:
                         print(f"[error] seed={r.seed} {r.error}", file=sys.stderr)
                 raise SystemExit(f"episode error rate too high: {errors}/{len(trained)}")
+            visibility = visibility_audit(trained, vocab)
+            if visibility["violations"] and not args.allow_visibility_violations:
+                print(json.dumps({"visibility_failure": visibility}, ensure_ascii=False),
+                      file=sys.stderr, flush=True)
+                raise SystemExit(
+                    "visibility contract failed: " + "; ".join(visibility["violations"])
+                )
+            # Reward inversion must stop before the first gradient update. Logging
+            # it after PPO already let one poisoned batch change the policy.
+            health = reward_health(records, config.gamma)
+            if health["inverted"]:
+                raise SystemExit(
+                    "reward contract failed before PPO: losing returns "
+                    f"{health['loss_return']} but winning returns {health['win_return']}"
+                )
             live.set_all("updating", iteration=iteration, stage=stage.name, split="train")
-            stats = ppo_update_epoch(model, optimizer, trained, vocab, config)
-            for _ in range(config.update_epochs - 1):
+            epoch_stats = []
+            for _ in range(config.update_epochs):
                 stats = ppo_update_epoch(model, optimizer, trained, vocab, config)
+                epoch_stats.append(stats)
+                if config.hard_kl_stop is not None and stats["approx_kl"] >= config.hard_kl_stop:
+                    break
+                if config.target_kl is not None and stats["approx_kl"] >= config.target_kl:
+                    break
+            stats = {
+                key: sum(epoch[key] for epoch in epoch_stats) / len(epoch_stats)
+                for key in epoch_stats[0]
+            }
+            stats["update_epochs_ran"] = len(epoch_stats)
             wins = sum(r.outcome is True for r in records)
             steps_total = sum(len(r.steps) for r in trained)
             row = {
@@ -336,6 +372,7 @@ def main() -> int:
                 "episodes": len(records), "errors": errors,
                 "steps": steps_total,
                 "avg_floor": round(sum(r.final_floor for r in records) / max(len(records), 1), 2),
+                "visibility": visibility,
                 **stats,
                 "seconds": round(time.perf_counter() - start, 1),
             }
@@ -350,7 +387,6 @@ def main() -> int:
             # Diagnostics that would have caught the two bugs that survived to v5:
             # a potion action never once offered, and a reward function that paid
             # more for dying at the boss than for beating it.
-            health = reward_health(records, config.gamma)
             row["reward_health"] = health
             row["action_mix"] = action_mix(records)
             if not stage.is_combat:
@@ -366,7 +402,11 @@ def main() -> int:
             history.append(row)
             history_writer.append(row)
             print(json.dumps(row))
-            for key in ("train_win_rate", "avg_floor", "loss", "policy_loss", "value_loss", "entropy"):
+            for key in (
+                "train_win_rate", "avg_floor", "loss", "policy_loss", "value_loss",
+                "entropy", "approx_kl", "clip_fraction", "grad_norm",
+                "grad_norm_clipped", "explained_variance", "update_epochs_ran",
+            ):
                 logger.scalar(f"{stage.name}/{key}", float(row[key]), iteration)
             if "boss_replay_win_rate" in row:
                 logger.scalar(f"{stage.name}/boss_replay_win_rate",
