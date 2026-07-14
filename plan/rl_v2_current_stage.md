@@ -297,7 +297,9 @@ iteration 79 mixed dev 达 40/50（80%）后暴露两个独立问题：(1) Act 1
 
 修复后显式从 checkpoint 79 进入 Act 1 的 iteration 80 已完成：82 个整局 + 14 个 on-policy boss replay、10,805 decisions、0 engine error、0 unknown/collision/pointer/nonfinite/violation；15 类动作全部 offered/chosen。KL 0.0110 触发 target-KL early stop，只执行 1 epoch（低于 0.02 hard stop）；训练现持续停留在 Act 1，不再返回 mixed。
 
-iteration 83 随后命中 Slippery Bridge 的 `HOLD_ON_2→3→4→5→6` 链并被 strict audit 正确中止。根因不是编码器漏报，而是稳定 option 词表仍靠轨迹偶遇补全；权威 localization 显示该事件最终进入 `HOLD_ON_LOOP→HOLD_ON_LOOP` 自环。已改为预注册全部本地化事件 option，并增加完整链回归测试。另补两项恢复/展示契约：每次成功 PPO iteration 原子保存 `resume.pt`，watchdog 优先恢复较新的逐迭代点；history 记录显式 resume 分支，Dashboard 丢弃 cutoff 之后的废弃分支指标并按最近活跃时间默认选择 run。重启前测试为 RL 102 + 根目录 29 = 131 passed；恢复验收目标是新的 iteration 80 写出 `resume.pt`，随后连续 10 个 Act 1 iteration 与新 milestone 均保持 0 visibility violation。
+iteration 83 随后命中 Slippery Bridge 的 `HOLD_ON_2→3→4→5→6` 链并被 strict audit 正确中止。根因不是编码器漏报，而是稳定 option 词表仍靠轨迹偶遇补全；权威 localization 显示该事件最终进入 `HOLD_ON_LOOP→HOLD_ON_LOOP` 自环。已改为预注册全部本地化事件 option，并增加完整链回归测试。另补两项恢复/展示契约：每次成功 PPO iteration 原子保存 `resume.pt`，watchdog 优先恢复较新的逐迭代点；history 记录显式 resume 分支，Dashboard 丢弃 cutoff 之后的废弃分支指标并按最近活跃时间默认选择 run。重启前测试为 RL 102 + 根目录 29 = 131 passed。
+
+恢复验收已完成：从 checkpoint 79 重启时 Dashboard 的 canonical 曲线正确回到 79；新的 iteration 80 写出 `resume.pt` 后，watchdog helper 实际选择该文件。iteration 80–89 连续完成 820 episodes / 118,832 decisions，0 engine error、0 candidate collision、0 pointer miss、0 unknown entity、0 non-finite feature、0 visibility violation；曾经失败的 iteration 83 已正常越过。`ckpt_00089.pt` 保存 2,451 行 embedding，50-seed dev 为 26% 胜率、平均 15.3 层；训练继续到 iteration 90 且逐迭代恢复点已推进到 90。
 
 ## 下一步
 

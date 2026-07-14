@@ -316,3 +316,5 @@ iteration 79 mixed dev 40/50 后首次进入 Act 1，strict audit 在 PPO 前拦
 词表生成器现直接读取 localization 中全部 `.options.*.title` 键，过滤描述和页面标题，并保持全局 append-only。新增 147 个事件 option 位于 2,304–2,450，原有 1–2,303 索引逐个不变，词表共 2,451 行。重建后对正式 run 的 1,304 artifacts / 99,938 decisions 全量审计仍为 0 collision、0 pointer miss、0 unknown、0 non-finite、0 violation。
 
 同时修复恢复损失与 Dashboard 分支混淆：训练器每个成功 iteration 原子写 `resume.pt`，watchdog 在它比 milestone 更新时优先恢复，因此不再因十轮一存而丢掉 iteration 80–82；每次 resume 还写入带 cutoff 的 history marker，Dashboard 据此只构造当前 canonical 分支，并按 live/history/checkpoint 最近活跃时间默认选 run。相关测试加上 checkpoint 临时文件清理回归后，RL 102 + 根目录 29 = 131 passed。下一步从 checkpoint 79 再次进入 Act 1，现场验证 iteration 80 的逐迭代恢复点，然后连续观察至少 10 轮至新 milestone。
+
+现场恢复验收通过：Dashboard 在 resume marker 后从废弃分支 iteration 87 正确回到 canonical 79；新的 iteration 80 完成后原子生成 `resume.pt`，watchdog helper 选择它而非旧 milestone。iteration 80–89 连续十轮共 820 episodes / 118,832 decisions，所有轮次均为 0 engine error、0 collision、0 pointer miss、0 unknown entity、0 non-finite、0 violation；原失败点 iteration 83 正常通过。新 `ckpt_00089.pt` 含 2,451 行 embedding，50-seed dev 胜率 26%、平均 15.3 层；训练继续到 iteration 90，`resume.pt` 也已推进到 step 90。

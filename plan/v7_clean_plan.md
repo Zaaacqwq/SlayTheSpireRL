@@ -1,6 +1,6 @@
 # M2 v7-clean：可见性契约与大模型训练计划
 
-状态：**P1–P4 已完成，P5 on-policy boss replay 已落地；Act 1 的完整事件选项目录与逐迭代恢复机制已补齐，准备从 iteration 79 重启连续验证**
+状态：**P1–P4 已完成，P5 on-policy boss replay 已落地；完整事件选项目录、逐迭代恢复和 Dashboard 分支语义已通过 Act 1 iteration 80–89 连续验证，正式长跑继续中**
 开始日期：2026-07-14  
 目标：保留 v7 的 `hidden=256 / layers=4 / heads=8` 大模型方向，但在重新训练前消除动作不可达、候选碰撞和关键状态不可见问题，并把这些问题变成可自动阻断训练的契约。
 
@@ -112,8 +112,8 @@ dev 单点不用于 LR 排序，选择只依据同轮 KL 安全性。原始 512 
 - [x] 每个成功 iteration 原子写入 `resume.pt`；watchdog 优先选择时间更新的逐迭代恢复点，避免只按 10-iteration milestone 恢复而丢失 80–82 的 PPO 更新。
 - [x] history 写入显式 resume 分支标记；Dashboard 只展示该标记之后的 canonical iteration，并按 live/history/checkpoint 活跃时间排序，避免默认打开旧 run 或把废弃分支的 iteration 80–87 混进当前曲线。
 - [x] 最新全 run 可见性复审覆盖 1,304 artifacts / 99,938 decisions：15 类动作全部 offered/chosen，collision、pointer miss、unknown、non-finite 与 violations 全为 0；Python 测试 131 项通过。
-- [ ] 从 checkpoint 79 重启，确认 iteration 80 生成 `resume.pt`，watchdog 的下一恢复源为该文件，Dashboard 当前分支不显示废弃的 80–87。
-- [ ] 连续完成至少 10 个新的 Act 1 iteration，并在新的 milestone checkpoint 上复审 0 visibility violation 后，才恢复无人值守长跑。
+- [x] 从 checkpoint 79 重启：Dashboard 先回退到 canonical iteration 79，不再显示废弃的 80–87；新 iteration 80 生成 `resume.pt`，watchdog 确认优先选择该文件。
+- [x] 连续完成 Act 1 iteration 80–89：820 episodes / 118,832 decisions，0 engine error、0 collision、0 pointer miss、0 unknown entity、0 non-finite、0 violation；`ckpt_00089.pt` 为 2,451 行 vocab，50-seed dev 胜率 26%、平均 15.3 层。逐迭代恢复点已继续推进到 iteration 90，恢复无人值守长跑。
 
 ## P5：课程与晋级
 
