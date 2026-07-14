@@ -28,7 +28,8 @@ from sts2rl.artifacts import EpisodeArtifactWriter, IncrementalHistoryWriter
 from sts2rl.batch_inference import BatchedAgent
 from sts2rl.checkpoint import load_checkpoint, save_checkpoint
 from sts2rl.curriculum import (
-    CurriculumStage, Loadout, act_variant_of, boss_replay_split, ironclad_stages,
+    CurriculumStage, Loadout, act_variant_of, boss_loadout_from_state,
+    boss_replay_split, ironclad_stages,
 )
 from sts2rl.engine import EngineClient, RunConfig
 from sts2rl.entities import EntityVocab
@@ -56,6 +57,54 @@ NAMESPACE = "m2-a0-ironclad"
 ADVANCE_THRESHOLDS = {"normal_combat": 0.80, "mixed_combat": 0.60, "boss_combat": 0.30, "act1": 0.30}
 LOADOUTS_PATH = REPO_ROOT / "rl" / "schema" / "m2_boss_loadouts.json"
 MAX_EPISODE_ERROR_RATE = 0.05
+
+
+def _loadout_dict(loadout: Loadout) -> dict:
+    return {
+        "hp": loadout.hp, "max_hp": loadout.max_hp,
+        "deck": list(loadout.deck), "relics": list(loadout.relics),
+        "potions": list(loadout.potions), "encounter": loadout.encounter,
+    }
+
+
+def _loadout_from_dict(row: dict) -> Loadout:
+    return Loadout(
+        int(row["hp"]), int(row["max_hp"]), tuple(row["deck"]),
+        tuple(row["relics"]), tuple(row["potions"]), row.get("encounter"),
+    )
+
+
+def update_on_policy_boss_buffer(buffer: list[Loadout], records, max_size: int) -> int:
+    """Append one start-of-boss snapshot per run and retain a rolling window."""
+    added = 0
+    seen = {
+        (row.encounter, row.hp, row.max_hp, row.deck, row.relics, row.potions)
+        for row in buffer
+    }
+    for record in records:
+        for step in record.steps:
+            loadout = boss_loadout_from_state(step.raw_state)
+            if loadout is None:
+                continue
+            key = (loadout.encounter, loadout.hp, loadout.max_hp,
+                   loadout.deck, loadout.relics, loadout.potions)
+            if key not in seen:
+                buffer.append(loadout)
+                seen.add(key)
+                added += 1
+            break
+    if len(buffer) > max_size:
+        del buffer[:-max_size]
+    return added
+
+
+def save_on_policy_boss_buffer(path: Path, buffer: Sequence[Loadout]) -> None:
+    payload = {"version": 1, "source": "on_policy", "loadouts": [
+        _loadout_dict(row) for row in buffer
+    ]}
+    temp = path.with_suffix(path.suffix + ".tmp")
+    temp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    os.replace(temp, path)
 
 
 def make_client() -> EngineClient:
@@ -201,6 +250,13 @@ def main() -> int:
     parser.add_argument("--boss-mix", type=float, default=0.15,
                         help="fraction of each run-stage iteration replayed as boss "
                              "fights, so the boss skill is not forgotten (0 disables)")
+    parser.add_argument("--on-policy-boss-replay", action="store_true",
+                        help="build boss replay loadouts only from this run's own "
+                             "first-round boss states; never read the legacy v4 buffer")
+    parser.add_argument("--boss-replay-min-loadouts", type=int, default=8,
+                        help="minimum on-policy snapshots before boss replay activates")
+    parser.add_argument("--boss-replay-buffer-size", type=int, default=256,
+                        help="maximum rolling on-policy boss snapshots retained")
     parser.add_argument("--all-act-regions", action="store_true",
                         help="keep both Act 1 regions in the encounter pools; by default "
                              "only the region runs actually visit is trained on")
@@ -209,6 +265,12 @@ def main() -> int:
     args = parser.parse_args()
     if not 0.0 <= args.boss_mix < 1.0:
         raise SystemExit("--boss-mix must be in [0, 1)")
+    if args.boss_replay_min_loadouts < 1:
+        raise SystemExit("--boss-replay-min-loadouts must be positive")
+    if args.boss_replay_buffer_size < args.boss_replay_min_loadouts:
+        raise SystemExit(
+            "--boss-replay-buffer-size must be >= --boss-replay-min-loadouts"
+        )
 
     if not os.environ.get("STS2_GAME_DIR"):
         raise SystemExit("STS2_GAME_DIR required")
@@ -258,19 +320,31 @@ def main() -> int:
         catalog = probe.list_models("encounter")
         act_variant = None if args.all_act_regions else detect_act_variant(probe, catalog)
     boss_loadouts: tuple[Loadout, ...] = ()
-    if LOADOUTS_PATH.exists():
+    if not args.on_policy_boss_replay and LOADOUTS_PATH.exists():
         harvested = json.loads(LOADOUTS_PATH.read_text(encoding="utf-8"))
-        boss_loadouts = tuple(
-            Loadout(row["hp"], row["max_hp"], tuple(row["deck"]),
-                    tuple(row["relics"]), tuple(row["potions"]))
-            for row in harvested["loadouts"]
-        )
+        boss_loadouts = tuple(_loadout_from_dict(row) for row in harvested["loadouts"])
     stages = ironclad_stages(catalog, boss_loadouts, act_variant=act_variant)
     boss_stage = next((s for s in stages if s.name == "boss_combat"), None)
+    boss_encounters = tuple(sorted(
+        str(row["id"]) for row in catalog
+        if row["act"] == 1 and row["category"] == "boss"
+        and (act_variant is None or str(row.get("act_id")) == act_variant)
+    ))
+    on_policy_buffer_path = run_dir / "on_policy_boss_loadouts.json"
+    on_policy_boss_loadouts: list[Loadout] = []
+    if args.on_policy_boss_replay and on_policy_buffer_path.exists():
+        saved = json.loads(on_policy_buffer_path.read_text(encoding="utf-8"))
+        on_policy_boss_loadouts = [
+            _loadout_from_dict(row) for row in saved.get("loadouts", [])
+        ][-args.boss_replay_buffer_size:]
     print(json.dumps({
         "act_variant": act_variant,
         "encounters": {s.name: len(s.encounters) for s in stages if s.is_combat},
         "boss_mix": args.boss_mix,
+        "boss_replay_source": (
+            "on_policy" if args.on_policy_boss_replay else "legacy_static"
+        ),
+        "on_policy_boss_loadouts": len(on_policy_boss_loadouts),
     }))
     clients = [make_client() for _ in range(args.workers)]
     stage_index = 0
@@ -309,8 +383,15 @@ def main() -> int:
             # rate 23.3% -> 12.5% over 160 act1 iterations, collapsing hardest on
             # the two bosses real runs meet most). Keep replaying boss fights
             # while the run stages train.
+            active_boss_stage = boss_stage
+            if (args.on_policy_boss_replay
+                    and len(on_policy_boss_loadouts) >= args.boss_replay_min_loadouts):
+                active_boss_stage = CurriculumStage(
+                    "boss_combat", boss_encounters,
+                    loadouts=tuple(on_policy_boss_loadouts),
+                )
             boss_seeds: list[str] = []
-            if boss_stage is not None and not stage.is_combat and args.boss_mix > 0:
+            if active_boss_stage is not None and not stage.is_combat and args.boss_mix > 0:
                 boss_seeds, seeds = boss_replay_split(seeds, args.boss_mix)
             records = collect_iteration(
                 clients, stage, seeds, agent, config, iteration=iteration, live=live,
@@ -318,8 +399,17 @@ def main() -> int:
             boss_records = []
             if boss_seeds:
                 boss_records = collect_iteration(
-                    clients, boss_stage, boss_seeds, agent, config,
+                    clients, active_boss_stage, boss_seeds, agent, config,
                     iteration=iteration, live=live,
+                )
+            new_boss_loadouts = 0
+            if args.on_policy_boss_replay and not stage.is_combat:
+                new_boss_loadouts = update_on_policy_boss_buffer(
+                    on_policy_boss_loadouts, records,
+                    args.boss_replay_buffer_size,
+                )
+                save_on_policy_boss_buffer(
+                    on_policy_buffer_path, on_policy_boss_loadouts,
                 )
             # Full step-level records are large; sample train iterations so an
             # 800-iteration run stays browsable without flooding the disk.
@@ -382,6 +472,12 @@ def main() -> int:
                 **stats,
                 "seconds": round(time.perf_counter() - start, 1),
             }
+            if args.on_policy_boss_replay:
+                row["on_policy_boss_loadouts"] = len(on_policy_boss_loadouts)
+                row["new_boss_loadouts"] = new_boss_loadouts
+                row["boss_replay_ready"] = (
+                    len(on_policy_boss_loadouts) >= args.boss_replay_min_loadouts
+                )
             if boss_records:
                 # Boss retention, tracked separately: it must not be averaged into
                 # the stage score that gates advancement.

@@ -1,6 +1,6 @@
 # M2 Ironclad（进行中）
 
-更新日期：2026-07-13
+更新日期：2026-07-14
 
 M0、M1 已完成。**完整历史（M / P / v 三级，含 M0、M1 的验收证据）见 [`timeline.md`](timeline.md)。** M1 的原始文档见 `git show bbc48db:plan/rl_v2_current_stage.md`（**此前引用的 `8d6bf01` 在本分支历史中不存在，是坏引用**）。关键锚点：主仓库 `c22d4af`、CLI fork `7fe0006`、1,000 局 A0 零错误、跨进程 resume 参数 hash 一致。M2 于 2026-07-11 开始。
 
@@ -285,11 +285,16 @@ v6 首个 act1 smoke 的实测输出已显示 `use_potion: 0.023`（今天之前
 
 因此旧 v7 checkpoint 只作回归对照，不继续正式训练。保留 `hidden=256 / layers=4 / heads=8` 方向，按 [`v7_clean_plan.md`](v7_clean_plan.md) 完成动作/观测契约、visibility audit 与 fail-fast 门槛后，从新初始化启动 `m2_v7_clean_init0`。
 
-P1–P3 已实施并验收：最终词表 2,296 个稳定实体；累计 285 个 smoke episode、17,366 个真实决策中，15 类动作全部 offered/chosen，candidate collision、pointer miss、unknown field/entity、非有限 feature 与 violations 均为 0。最终 256×4×8 模型在严格门槛下完成一次 PPO 更新（KL 0.00474，grad norm 0.922→0.440），报告为 `rl/runs/v7_clean_visibility_audit.json`。external 已固定到 `e1a0688e…`；正式 run 尚未启动，下一步做 `lr=1e-4`/`3e-4` 等步数短程对照。
+P1–P3 已实施并验收：最终词表 2,299 个稳定实体；累计 381 个 smoke/preflight episode、24,007 个真实决策中，15 类动作全部 offered/chosen，candidate collision、pointer miss、unknown field/entity、非有限 feature 与 violations 均为 0。报告为 `rl/runs/v7_clean_visibility_audit.json`。external 已固定到 `e1a0688e…`。
+
+P4 校准完成：随机 512 minibatch 因完整地图 padding 占满 15.8GB、10 分钟未完成；entity-length-aware packing + minibatch 256 将完整 train+50-dev 轮降至约 84–92 秒、峰值约 8.4GB。同 init/seed 流首轮 KL：`5e-5=0.00667`、`1e-4=0.01857`、`3e-4=0.02804`，因此正式配置选 `lr=5e-5`，dev 单点不参与 LR 排序。
+
+P5 的 on-policy boss replay 已落地：`--on-policy-boss-replay` 完全不读取 v4 的 `m2_boss_loadouts.json`，只从当前策略真实抵达 boss 的首回合抽取 HP、保留 `+` 升级层级的完整牌组、遗物、药水与实际 boss id；run 内原子持久化，8 个不同快照后才启用 15% replay，滚动上限 256。真实引擎已从 `THE_KIN_BOSS` artifact 原样恢复 39 HP、17 张牌（1 张升级牌）并进入 `combat_play`；小型 CUDA trainer smoke 为 0 error / 0 visibility violation，且阶段表没有旧静态 boss stage。
 
 ## 下一步
 
-- P4/v7-clean：external submodule 已固定到 `e1a0688e…`，父仓 pin 随本轮实现提交。
-- v7-clean 初始调优：96 episodes/iteration、minibatch 512、`lr=1e-4`，与 `3e-4` 做等环境步数短程对照，并用 KL early-stop；P3 fail-fast 全程保持开启。
+- P4/v7-clean：external submodule 与父仓 pin 已固定；on-policy replay 实现与计划更新随本轮提交。
+- v7-clean 选定：96 episodes/iteration、minibatch 256 + length-aware packing、`lr=5e-5`、KL early-stop；P3 fail-fast 全程保持开启。
+- 启动全新 `m2_v7_clean_init0`：256×4×8、96 episodes/iteration、minibatch 256 length packing、`lr=5e-5`、KL 0.01/0.02、12 workers、CUDA、`--on-policy-boss-replay --max-stage act1`，不加载旧 checkpoint。
 - Act 1 连续三个 50-seed gate ≥30% 且 450-seed audit 不退化后进入 full A0。
 - P5：5 初始化、terminal-only ablation 完成后，才运行正式 1,000 test seeds 验收。

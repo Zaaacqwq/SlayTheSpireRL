@@ -281,6 +281,18 @@ P5 验收      ❌
 
 完成 shop 购买/删卡动作、bundle 内容、多选集合、目标敌人/目标实际伤害绑定；补入敌我 power、intent、boss、完整地图、orb/slot、enchantment/affliction、事件稳定变量与 13 维归一化 global。候选可绑定最多 16 个语义实体，模型对绑定集合做 masked pooling。
 
-词表改为完整 ModelDb 目录 + 真实引擎 sweep + 审核 smoke 增量生成，共 2,296 个稳定实体。累计 `visibility_audit.json` 覆盖 285 个 episode、17,366 个决策，15 类动作全部 offered/chosen；collision、pointer miss、unknown field/entity、non-finite 和 violations 全为 0。最终 256×4×8 smoke 完成 PPO 更新：KL 0.00474、clip fraction 0.0574、grad norm 0.922→0.440、explained variance 0.0254。旧 v7 checkpoint 继续冻结；正式 `m2_v7_clean_init0` 尚未启动，下一步做 LR 短程对照。
+词表改为完整 ModelDb 目录 + 真实引擎 sweep + 审核 smoke 增量生成，共 2,299 个稳定实体。累计 `visibility_audit.json` 覆盖 381 个 episode、24,007 个决策，15 类动作全部 offered/chosen；collision、pointer miss、unknown field/entity、non-finite 和 violations 全为 0。最终 256×4×8 smoke 完成 PPO 更新：KL 0.00474、clip fraction 0.0574、grad norm 0.922→0.440、explained variance 0.0254。旧 v7 checkpoint 继续冻结；正式 `m2_v7_clean_init0` 尚未启动，下一步做 LR 短程对照。
 
 external 协议扩展已固定为 `e1a0688e2d873ddfe5bd8dd898369b7749d5c54c`。完整 external suite 在修复测试夹具 stderr 管道阻塞后完成：70 passed；2 个旧 save/load 用例失败于当前游戏构建的 `RelicGrabBag` 重复 Populate，记录为与训练路径分离的兼容遗留项。
+
+#### v7-clean — P4 LR/批处理校准（2026-07-14）
+
+原始 minibatch 512 随机混入完整地图状态，导致所有样本 pad 到超宽实体序列：RTX 5080 占用约 15.8GB，10 分钟仍未完成一轮。PPO 改为按实体长度装箱、桶/桶内仍随机，minibatch 256 后完整 train+50-dev 一轮降至 84–92 秒、峰值约 8.4GB。
+
+同 init/seed 流的一轮结果：`lr=5e-5`（6,341 steps，KL 0.00667，dev 12%）、`1e-4`（6,278，KL 0.01857，dev 2%）、`3e-4`（6,176，KL 0.02804，dev 6%）。50-seed dev 单点噪声大，不用于 LR 排序；`3e-4` 越过 0.02 hard stop，`1e-4` 接近 hard stop，正式起点选 `5e-5`。
+
+#### v7-clean — on-policy boss replay（2026-07-14）
+
+正式训练不再读取 v4 盲策略生成的 `m2_boss_loadouts.json`。新增 `--on-policy-boss-replay`：仅从当前策略真实抵达 boss 的首回合记录提取 HP/max HP、保留 `+` 升级层级的完整牌组、遗物、药水和实际 boss encounter；run 内原子持久化，8 个快照后启用 15% replay，滚动上限 256。boss 与快照成对恢复，不再随机把某个 boss 的牌组状态配给另一个 boss。
+
+验收包括 121 项 Python/根目录测试，以及真实引擎恢复：从 artifact 抽取 `THE_KIN_BOSS`（39 HP、17 张牌、1 张升级牌）的快照后，`start_combat` 正确进入 `combat_play`。两局 CUDA trainer smoke 明确报告 `boss_replay_source=on_policy`、0 engine error、0 visibility violation；旧静态 boss stage 未进入阶段表。正式配置据此固定为 256×4×8、`lr=5e-5`、minibatch 256 length packing、96 局/轮、12 workers、KL 0.01/0.02、`--max-stage act1`。

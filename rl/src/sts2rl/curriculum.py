@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
-from typing import Sequence
+from typing import Any, Mapping, Sequence
 
 from .engine import CombatConfig, RunConfig
 
@@ -27,6 +27,7 @@ class Loadout:
     deck: tuple[str, ...]
     relics: tuple[str, ...]
     potions: tuple[str, ...]
+    encounter: str | None = None
 
 
 @dataclass(frozen=True)
@@ -77,8 +78,12 @@ def episode_config(
 ) -> CombatConfig | RunConfig:
     if stage.is_combat and stage.loadouts:
         loadout = sample_loadout(stage, seed)
+        encounter = (
+            loadout.encounter if loadout.encounter in stage.encounters
+            else sample_encounter(stage, seed)
+        )
         return CombatConfig(
-            character, seed, sample_encounter(stage, seed), ascension=ascension,
+            character, seed, encounter, ascension=ascension,
             deck=loadout.deck, relics=loadout.relics, potions=loadout.potions,
             hp=loadout.hp, max_hp=loadout.max_hp,
         )
@@ -89,6 +94,42 @@ def episode_config(
             hp=sample_starting_hp(stage, seed), max_hp=80,
         )
     return RunConfig(character, seed, ascension)
+
+
+def boss_loadout_from_state(state: Mapping[str, Any]) -> Loadout | None:
+    """Extract the exact on-policy snapshot at the start of an Act boss fight."""
+    context = state.get("context") or {}
+    if (state.get("decision") != "combat_play"
+            or context.get("room_type") != "Boss"
+            or int(state.get("round", 0) or 0) != 1):
+        return None
+    boss = context.get("boss") or {}
+    encounter = boss.get("id")
+    player = state.get("player") or {}
+    deck = []
+    for card in player.get("deck") or []:
+        card_id = str(card.get("id") or "")
+        if not card_id:
+            continue
+        card_id = card_id.removeprefix("CARD.")
+        if card.get("upgraded"):
+            card_id += "+"
+        deck.append(card_id)
+    if not encounter or not deck or int(player.get("hp", 0) or 0) <= 0:
+        return None
+    return Loadout(
+        hp=int(player["hp"]), max_hp=int(player.get("max_hp", 80) or 80),
+        deck=tuple(deck),
+        relics=tuple(
+            str(row["id"]).removeprefix("RELIC.")
+            for row in player.get("relics") or [] if row.get("id")
+        ),
+        potions=tuple(
+            str(row["id"]).removeprefix("POTION.")
+            for row in player.get("potions") or [] if row.get("id")
+        ),
+        encounter=str(encounter),
+    )
 
 
 def boss_replay_split(seeds: Sequence[str], fraction: float) -> tuple[list[str], list[str]]:

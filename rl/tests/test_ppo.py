@@ -203,6 +203,32 @@ def test_boss_bridge_stage_uses_harvested_loadouts():
         "normal_combat", "mixed_combat", "act1", "full_a0"]
 
 
+def test_on_policy_boss_snapshot_preserves_upgrades_and_actual_encounter():
+    from sts2rl.curriculum import boss_loadout_from_state
+
+    state = {
+        "decision": "combat_play", "round": 1,
+        "context": {"room_type": "Boss", "boss": {"id": "B1"}},
+        "player": {
+            "hp": 31, "max_hp": 84,
+            "deck": [
+                {"id": "CARD.BASH", "upgraded": True},
+                {"id": "CARD.STRIKE_IRONCLAD", "upgraded": False},
+            ],
+            "relics": [{"id": "RELIC.BURNING_BLOOD"}],
+            "potions": [{"id": "POTION.BLOCK_POTION"}],
+        },
+    }
+    loadout = boss_loadout_from_state(state)
+    assert loadout is not None
+    assert loadout.encounter == "B1"
+    assert loadout.deck == ("BASH+", "STRIKE_IRONCLAD")
+
+    stage = CurriculumStage("boss_combat", ("B1", "OTHER"), loadouts=(loadout,))
+    config = episode_config(stage, "seed")
+    assert config.encounter == "B1" and config.deck == loadout.deck
+
+
 # Act 1 ships two disjoint regions; a run only ever visits one (300/300 sampled
 # A0 Ironclad runs start in Overgrowth). Training both spends ~48% of every
 # combat stage on monsters the agent will never meet.
