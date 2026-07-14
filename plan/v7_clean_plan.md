@@ -1,6 +1,6 @@
 # M2 v7-clean：可见性契约与大模型训练计划
 
-状态：**P1–P4 已完成，P5 on-policy boss replay 已落地，正式长跑待启动**
+状态：**P1–P4 已完成，P5 on-policy boss replay 已落地，`m2_v7_clean_init0` 正式长跑中**
 开始日期：2026-07-14  
 目标：保留 v7 的 `hidden=256 / layers=4 / heads=8` 大模型方向，但在重新训练前消除动作不可达、候选碰撞和关键状态不可见问题，并把这些问题变成可自动阻断训练的契约。
 
@@ -104,7 +104,7 @@ dev 单点不用于 LR 排序，选择只依据同轮 KL 安全性。原始 512 
 - [x] 为全新 `m2_v7_clean_init0` 固定启动配置（从 init seed 0，不加载旧 checkpoint）。
 - [x] 相同 init/seed 流完成 `lr=1e-4` 与 `3e-4` 等规模短程对照；另补 `5e-5` 安全校准。
 - [x] 依据 KL 选择 `lr=5e-5 / minibatch=256 / length-aware packing`。
-- [ ] 启动长跑；配置已确定，等待 P5 on-policy replay 验收提交后启动。
+- [x] 启动 `m2_v7_clean_init0` 长跑；首轮 96 局为 0 error / 0 visibility violation，KL 0.00354，watchdog 持续守护。
 
 ## P5：课程与晋级
 

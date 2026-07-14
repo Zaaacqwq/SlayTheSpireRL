@@ -291,6 +291,8 @@ P4 校准完成：随机 512 minibatch 因完整地图 padding 占满 15.8GB、1
 
 P5 的 on-policy boss replay 已落地：`--on-policy-boss-replay` 完全不读取 v4 的 `m2_boss_loadouts.json`，只从当前策略真实抵达 boss 的首回合抽取 HP、保留 `+` 升级层级的完整牌组、遗物、药水与实际 boss id；run 内原子持久化，8 个不同快照后才启用 15% replay，滚动上限 256。真实引擎已从 `THE_KIN_BOSS` artifact 原样恢复 39 HP、17 张牌（1 张升级牌）并进入 `combat_play`；小型 CUDA trainer smoke 为 0 error / 0 visibility violation，且阶段表没有旧静态 boss stage。
 
+正式 `m2_v7_clean_init0` 已由 watchdog 启动。iteration 0：96 局、1,709 decisions、0 engine error、0 visibility violation、KL 0.00354、4 epochs、grad norm 0.996→0.460、reward health 正常，墙钟 22.1 秒；on-policy boss buffer 在 normal 阶段按设计保持为空。
+
 ## 下一步
 
 - P4/v7-clean：external submodule 与父仓 pin 已固定；on-policy replay 实现与计划更新随本轮提交。
