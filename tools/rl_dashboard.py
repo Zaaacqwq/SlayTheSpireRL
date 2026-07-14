@@ -30,23 +30,40 @@ _ENRICH_CACHE_LOCK = threading.Lock()
 _ENRICH_CACHE: dict[Path, tuple[tuple[int, int], dict]] = {}
 
 
+def _read_text(path: Path, attempts: int = 5) -> str:
+    """Read a file the trainer may be replacing underneath us.
+
+    The live writer publishes workers.json and compacts worker_NN.jsonl with
+    os.replace. On Windows the destination is briefly un-openable during that
+    swap, so a plain open() from this polling server raises PermissionError —
+    exactly the race that, from the writer's side, used to kill the telemetry
+    thread. The window is microseconds, so a short retry closes it.
+    """
+    for attempt in range(attempts):
+        try:
+            return path.read_text(encoding="utf-8", errors="replace")
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.02 * (attempt + 1))
+    raise AssertionError("unreachable")
+
+
 def _json_load(path: Path):
-    with path.open("r", encoding="utf-8") as handle:
-        return json.load(handle)
+    return json.loads(_read_text(path))
 
 
 def _json_lines(path: Path):
     if not path.exists():
         return
-    with path.open("r", encoding="utf-8", errors="replace") as handle:
-        for line in handle:
-            text = line.strip()
-            if not text or not text.startswith("{"):
-                continue
-            try:
-                yield json.loads(text)
-            except json.JSONDecodeError:
-                continue
+    for line in _read_text(path).splitlines():
+        text = line.strip()
+        if not text or not text.startswith("{"):
+            continue
+        try:
+            yield json.loads(text)
+        except json.JSONDecodeError:
+            continue
 
 
 def default_data_root() -> Path:

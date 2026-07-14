@@ -346,3 +346,30 @@ def test_concurrent_legacy_requests_do_not_overlap_parquet_reads(tmp_path: Path)
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def test_reader_survives_the_writer_replacing_a_live_file(tmp_path, monkeypatch):
+    """The other half of the Windows os.replace race.
+
+    The live writer publishes workers.json with os.replace. On Windows the target
+    is briefly un-openable during that swap, so this polling server's plain open()
+    raised PermissionError — the same race that, from the writer's side, killed the
+    telemetry thread outright. Both ends need to tolerate it.
+    """
+    from tools.rl_dashboard import _json_load
+
+    target = tmp_path / "workers.json"
+    target.write_text(json.dumps({"enabled": True, "worker_count": 12}), encoding="utf-8")
+
+    real_read = Path.read_text
+    calls = {"n": 0}
+
+    def flaky_read(self, *args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:                      # caught mid-replace
+            raise PermissionError("[Errno 13] Permission denied")
+        return real_read(self, *args, **kwargs)  # the swap finished
+
+    monkeypatch.setattr(Path, "read_text", flaky_read)
+    assert _json_load(target)["worker_count"] == 12
+    assert calls["n"] == 2, "the first read must have been retried, not swallowed"
