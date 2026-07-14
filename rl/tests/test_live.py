@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import threading
+import time
 
 from sts2rl.live import LiveEventWriter
 
@@ -56,3 +57,60 @@ def test_disabled_live_writer_creates_no_files(tmp_path: Path):
     writer.emit(0, {"type": "action"})
     writer.close()
     assert not (tmp_path / "live").exists()
+
+
+def test_a_locked_snapshot_does_not_kill_the_writer_thread(tmp_path):
+    """Windows refuses os.replace while a reader holds the target open.
+
+    POSIX rename does not care. Windows raises WinError 5 unless the reader used
+    FILE_SHARE_DELETE, which the dashboard's plain open() does not — so polling
+    workers.json during training killed the writer thread outright, and every
+    worker console went dark for the rest of the run.
+    """
+    writer = LiveEventWriter(tmp_path, worker_count=2, flush_interval=0.01)
+    try:
+        writer.emit(0, {"type": "status", "status": "running"})
+        _wait_for(lambda: (tmp_path / "live" / "workers.json").exists())
+
+        # hold the snapshot open the way the dashboard does, then keep writing
+        with (tmp_path / "live" / "workers.json").open("r", encoding="utf-8") as reader:
+            reader.read()
+            for i in range(30):
+                writer.emit(i % 2, {"type": "action", "step": i})
+            time.sleep(0.3)
+            assert writer._thread is not None and writer._thread.is_alive(), (
+                "a locked snapshot must cost events, not the telemetry stream"
+            )
+
+        # and it recovers once the reader lets go
+        writer.emit(0, {"type": "status", "status": "still here"})
+        _wait_for(lambda: "still here" in (tmp_path / "live" / "workers.json").read_text(encoding="utf-8"))
+    finally:
+        writer.close()
+
+
+def test_atomic_replace_reports_failure_instead_of_raising(tmp_path, monkeypatch):
+    from sts2rl.live import _atomic_replace
+
+    temp = tmp_path / "x.tmp"
+    temp.write_text("payload", encoding="utf-8")
+    target = tmp_path / "x.json"
+
+    monkeypatch.setattr(
+        "sts2rl.live.os.replace",
+        lambda *_a: (_ for _ in ()).throw(PermissionError("[WinError 5] Access is denied")),
+    )
+    assert _atomic_replace(temp, target, attempts=2) is False
+    assert not temp.exists(), "a failed replace must not leave its temp file behind"
+
+
+def _wait_for(condition, timeout: float = 3.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            if condition():
+                return
+        except OSError:
+            pass
+        time.sleep(0.02)
+    raise AssertionError("condition not met within timeout")

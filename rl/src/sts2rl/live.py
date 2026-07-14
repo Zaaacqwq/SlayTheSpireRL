@@ -17,6 +17,33 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
 
 
+def _atomic_replace(temp: Path, target: Path, attempts: int = 5) -> bool:
+    """``os.replace`` that survives a concurrent reader on Windows.
+
+    POSIX ``rename`` happily replaces a file another process has open. Windows
+    refuses with ``WinError 5`` unless the reader opened it with FILE_SHARE_DELETE,
+    which the dashboard's plain ``open()`` does not — so polling ``workers.json``
+    while training writes it kills the write. It killed the writer thread outright
+    during v6 and every worker console went dark for the rest of the run.
+
+    The reader holds the file for microseconds, so a short retry wins. Returns
+    False rather than raising: a dropped telemetry snapshot is not worth a
+    training failure.
+    """
+    for attempt in range(attempts):
+        try:
+            os.replace(temp, target)
+            return True
+        except PermissionError:
+            if attempt == attempts - 1:
+                break
+            time.sleep(0.02 * (attempt + 1))
+        except OSError:
+            break
+    temp.unlink(missing_ok=True)
+    return False
+
+
 class LiveEventWriter:
     """Persist compact worker events without ever blocking sampler threads.
 
@@ -132,7 +159,16 @@ class LiveEventWriter:
                     break
                 batch.append(event)
             if batch:
-                self._write_batch(batch)
+                # Observability is never worth a training failure. A write that fails
+                # — a locked file, a full disk, a reader mid-poll — must cost one
+                # batch of events, not the whole telemetry stream. Before this, a
+                # single PermissionError killed the writer thread and every worker
+                # console went dark for the rest of the run.
+                try:
+                    self._write_batch(batch)
+                except Exception:
+                    with self._lock:
+                        self._dropped += len(batch)
             if stopping:
                 # Drain already queued events before exiting.
                 while True:
@@ -177,8 +213,9 @@ class LiveEventWriter:
         kept = lines[-self.max_events_per_worker:]
         temp = path.with_suffix(".jsonl.tmp")
         temp.write_text("\n".join(kept) + ("\n" if kept else ""), encoding="utf-8")
-        os.replace(temp, path)
-        self._counts[worker_id] = len(kept)
+        if _atomic_replace(temp, path):
+            self._counts[worker_id] = len(kept)
+        # a failed compaction just means the file stays long for one more round
 
     def _write_snapshot(self) -> None:
         cutoff = time.monotonic() - 5.0
@@ -199,4 +236,4 @@ class LiveEventWriter:
         target = self.live_dir / "workers.json"
         temp = target.with_suffix(".json.tmp")
         temp.write_text(json.dumps(snapshot, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-        os.replace(temp, target)
+        _atomic_replace(temp, target)
