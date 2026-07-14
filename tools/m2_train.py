@@ -337,6 +337,12 @@ def main() -> int:
                 raise SystemExit(f"episode error rate too high: {errors}/{len(trained)}")
             visibility = visibility_audit(trained, vocab)
             if visibility["violations"] and not args.allow_visibility_violations:
+                # Persist the exact failing batch even when periodic train
+                # recording is disabled, so vocabulary gaps are reproducible.
+                episode_writer.write_many(
+                    trained, iteration=iteration, stage=stage.name,
+                    split="visibility_failure", character="Ironclad",
+                )
                 print(json.dumps({"visibility_failure": visibility}, ensure_ascii=False),
                       file=sys.stderr, flush=True)
                 raise SystemExit(

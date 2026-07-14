@@ -188,7 +188,12 @@ def normalize_state(state: Mapping[str, Any]) -> NormalizedObservation:
     for option in state.get("options") or []:
         if not isinstance(option, Mapping):
             continue
-        for key, value in (option.get("vars") or {}).items():
+        option_vars = option.get("vars") or {}
+        for key, value in option_vars.items():
+            # The rendered localized name is intentionally redundant once the
+            # engine supplies the stable ModelId companion.
+            if key == "RandomCard" and option_vars.get("RandomCardId"):
+                continue
             # Identity-valued vars (for example RandomCardId) must include the
             # referenced content. Numeric vars share an id and carry magnitude.
             entity_id = f"EVENT_VAR.{key}"

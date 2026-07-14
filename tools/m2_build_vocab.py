@@ -41,6 +41,16 @@ CATALOGS: dict[str, tuple[str, str]] = {
 }
 OPTION_SWEEP_EPISODES = 40
 
+# Stable keys observed by strict preflight before automatic failure-artifact
+# persistence was added. Keep the reviewed provenance in source rather than
+# editing the generated vocabulary JSON by hand.
+REVIEWED_STABLE_KEYS: dict[str, set[str]] = {
+    "option": {
+        "SLIPPERY_BRIDGE.pages.INITIAL.options.OVERCOME",
+        "SLIPPERY_BRIDGE.pages.INITIAL.options.HOLD_ON_0",
+    },
+}
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -66,6 +76,8 @@ def main() -> int:
         discovered: dict[str, set[str]] = {
             kind: set() for kind in ENTITY_KINDS if kind not in _VOCAB_KIND_ALIASES
         }
+        for kind, keys in REVIEWED_STABLE_KEYS.items():
+            discovered[kind].update(keys)
 
         def discover(raw: dict) -> None:
             for entity in normalize_state(raw).entities:

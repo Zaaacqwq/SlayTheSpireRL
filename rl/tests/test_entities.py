@@ -350,6 +350,7 @@ def test_multiselect_bundle_shop_and_event_candidates_bind_their_contents():
     ))[0]
     ids = {event_obs.entities[i]["id"] for i in event_binding if i >= 0}
     assert "EVENT_VAR.RandomCardId.CARD.STRIKE_IRONCLAD" in ids
+    assert "EVENT_VAR.RandomCard" not in ids
 
 
 def test_shop_stock_and_affordability_are_numeric_features():
