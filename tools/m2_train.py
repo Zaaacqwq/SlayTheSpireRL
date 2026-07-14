@@ -38,6 +38,7 @@ from sts2rl.live import LiveEventWriter
 from sts2rl.model import EntityRecurrentPolicy
 from sts2rl.ppo import PPOConfig, finalize_episode, ppo_update_epoch, run_episode
 from sts2rl.seeds import split_seed
+from sts2rl.telemetry import action_mix, depth_profile, reward_health
 
 # STS2_CLI_ROOT lets a secondary checkout (e.g. a git worktree without the
 # built submodule) borrow the primary checkout's engine build.
@@ -345,6 +346,23 @@ def main() -> int:
                 row["boss_replay_win_rate"] = round(
                     sum(r.outcome is True for r in boss_records) / len(boss_records), 4
                 )
+
+            # Diagnostics that would have caught the two bugs that survived to v5:
+            # a potion action never once offered, and a reward function that paid
+            # more for dying at the boss than for beating it.
+            health = reward_health(records, config.gamma)
+            row["reward_health"] = health
+            row["action_mix"] = action_mix(records)
+            if not stage.is_combat:
+                row["depth"] = depth_profile(records)
+            if health["inverted"]:
+                print(
+                    f"[REWARD INVERTED] iteration {iteration}: losing returns "
+                    f"{health['loss_return']} but winning returns {health['win_return']} "
+                    f"({health['win_episodes']} wins, {health['loss_episodes']} losses). "
+                    f"The policy is being taught to lose — stop and fix the reward.",
+                    file=sys.stderr, flush=True,
+                )
             history.append(row)
             history_writer.append(row)
             print(json.dumps(row))
@@ -353,6 +371,15 @@ def main() -> int:
             if "boss_replay_win_rate" in row:
                 logger.scalar(f"{stage.name}/boss_replay_win_rate",
                               float(row["boss_replay_win_rate"]), iteration)
+            for name, value in (("win_return", health["win_return"]),
+                                ("loss_return", health["loss_return"])):
+                if value is not None:
+                    logger.scalar(f"{stage.name}/{name}", float(value), iteration)
+            for action, fraction in row["action_mix"].items():
+                logger.scalar(f"{stage.name}/action.{action}", float(fraction), iteration)
+            if "depth" in row and row["depth"]:
+                for key in ("reached_boss_rate", "boss_conversion"):
+                    logger.scalar(f"{stage.name}/{key}", float(row["depth"][key]), iteration)
 
             if (iteration + 1) % args.eval_every == 0:
                 evaluation, evaluation_records = evaluate_stage(
@@ -364,7 +391,18 @@ def main() -> int:
                     split="dev", character="Ironclad",
                 )
                 logger.scalar(f"{stage.name}/dev_win_rate", evaluation["win_rate"], iteration)
-                print(json.dumps({"iteration": iteration, "dev": evaluation, "stage": stage.name}))
+                dev_row = {"iteration": iteration, "dev": evaluation, "stage": stage.name}
+                if not stage.is_combat:
+                    dev_row["dev"] = {**evaluation, **depth_profile(evaluation_records)}
+                    for key in ("reached_boss_rate", "boss_conversion"):
+                        if key in dev_row["dev"]:
+                            logger.scalar(f"{stage.name}/dev_{key}",
+                                          float(dev_row["dev"][key]), iteration)
+                # Dev rows used to go to stdout only, never to history.jsonl, so every
+                # dashboard reading a run with a history file showed an empty validation
+                # series and a blank "best dev win rate" tile.
+                history_writer.append(dev_row)
+                print(json.dumps(dev_row))
                 save_checkpoint(
                     run_dir / f"ckpt_{iteration:05d}.pt", model, optimizer,
                     step=iteration,
