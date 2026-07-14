@@ -104,7 +104,7 @@ dev 单点不用于 LR 排序，选择只依据同轮 KL 安全性。原始 512 
 - [x] 为全新 `m2_v7_clean_init0` 固定启动配置（从 init seed 0，不加载旧 checkpoint）。
 - [x] 相同 init/seed 流完成 `lr=1e-4` 与 `3e-4` 等规模短程对照；另补 `5e-5` 安全校准。
 - [x] 依据 KL 选择 `lr=5e-5 / minibatch=256 / length-aware packing`。
-- [x] 启动 `m2_v7_clean_init0` 长跑；首轮 96 局为 0 error / 0 visibility violation，KL 0.00354，watchdog 持续守护。
+- [x] 启动 `m2_v7_clean_init0` 长跑；首轮 96 局为 0 error / 0 visibility violation，KL 0.00354；iteration 9 normal dev 42/50（84%）通过门槛并晋级 mixed，watchdog 持续守护。
 
 ## P5：课程与晋级
 
