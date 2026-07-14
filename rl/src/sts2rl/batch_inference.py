@@ -32,6 +32,10 @@ class _Request:
     result: AgentStep | None = None
 
 
+class InferenceServerError(RuntimeError):
+    """The batching server died; every worker waiting on it must fail, not hang."""
+
+
 class BatchedAgent:
     """Thread-safe drop-in for ``PolicyAgent`` backed by a batching server."""
 
@@ -44,43 +48,77 @@ class BatchedAgent:
         self.wait_s = wait_ms / 1000.0
         self._queue: queue.Queue[_Request] = queue.Queue()
         self._stop = threading.Event()
+        self._failure: BaseException | None = None
+        self._inflight: list[_Request] = []
         self._thread = threading.Thread(target=self._serve, daemon=True)
         self._thread.start()
 
     def act(self, raw_state: Mapping[str, Any], candidates: Sequence[ActionCandidate],
             hidden: tuple[float, ...] | None = None, *, greedy: bool = False,
             generator: torch.Generator | None = None) -> AgentStep:
+        # A dead server used to strand every caller on an Event that would never be
+        # set: the batch in flight got woken, and the eleven workers that queued
+        # behind it blocked forever. Twice today (a NaN weight, then a CUDA context
+        # invalidated by a driver update mid-run) that turned a crashed thread into
+        # a silently hung trainer holding twelve idle engines.
+        self._raise_if_dead()
         request = _Request(normalize_state(raw_state), candidates, hidden, greedy)
         self._queue.put(request)
-        request.done.wait()
-        assert request.result is not None
+        while not request.done.wait(timeout=0.5):
+            self._raise_if_dead()
+        if request.result is None:
+            self._raise_if_dead()
+            raise InferenceServerError("inference produced no result")
         return request.result
+
+    def _raise_if_dead(self) -> None:
+        if self._failure is not None:
+            raise InferenceServerError("inference server died") from self._failure
+        if not self._thread.is_alive() and not self._stop.is_set():
+            raise InferenceServerError("inference server thread exited")
 
     def close(self) -> None:
         self._stop.set()
         self._thread.join(timeout=5)
 
     def _serve(self) -> None:
-        while not self._stop.is_set():
-            try:
-                first = self._queue.get(timeout=0.1)
-            except queue.Empty:
-                continue
-            batch = [first]
-            deadline = threading.Event()
-            deadline.wait(self.wait_s)  # let concurrent workers queue up
-            while len(batch) < self.max_batch:
+        try:
+            while not self._stop.is_set():
                 try:
-                    batch.append(self._queue.get_nowait())
+                    first = self._queue.get(timeout=0.1)
                 except queue.Empty:
-                    break
-            try:
+                    continue
+                batch = [first]
+                deadline = threading.Event()
+                deadline.wait(self.wait_s)  # let concurrent workers queue up
+                while len(batch) < self.max_batch:
+                    try:
+                        batch.append(self._queue.get_nowait())
+                    except queue.Empty:
+                        break
+                self._inflight = batch
                 self._run_batch(batch)
-            except Exception as exc:  # surface failures to every waiter
-                for request in batch:
-                    request.result = None
-                    request.done.set()
-                raise
+                self._inflight = []
+        except BaseException as exc:  # noqa: BLE001 - the failure must reach the workers
+            self._failure = exc
+            raise
+        finally:
+            self._stop.set()
+            self._abandon_pending()
+
+    def _abandon_pending(self) -> None:
+        """Wake everyone still waiting; act() turns that into a raise."""
+        for request in self._inflight:
+            request.result = None
+            request.done.set()
+        self._inflight = []
+        while True:
+            try:
+                request = self._queue.get_nowait()
+            except queue.Empty:
+                return
+            request.result = None
+            request.done.set()
 
     def _run_batch(self, batch: list[_Request]) -> None:
         observations = [r.observation for r in batch]

@@ -83,3 +83,33 @@ def test_batched_agent_carries_hidden_state():
         assert s2.hidden == pytest.approx(b2.hidden, abs=1e-5)
     finally:
         batched.close()
+
+
+# A dead server used to strand every caller on an Event that would never be set.
+# It happened twice in one day — a NaN weight tripping a device-side assert, then a
+# CUDA context invalidated by a driver update mid-run — and each time a crashed
+# thread became a silently hung trainer holding twelve idle engine processes.
+def test_a_dead_inference_server_fails_workers_instead_of_hanging_them():
+    from sts2rl.batch_inference import InferenceServerError
+
+    model = make_model()
+    agent = BatchedAgent(model, EntityVocab({}))
+    try:
+        # whatever kills the server thread — here, a poisoned forward
+        def explode(_batch):
+            raise RuntimeError("CUDA error: unknown error")
+
+        agent._run_batch = explode  # type: ignore[method-assign]
+
+        with pytest.raises(InferenceServerError):
+            agent.act(STATES[0], CANDIDATES[0])
+
+        # and every worker that queues up *after* the death must fail fast too,
+        # rather than block forever on a server that will never answer
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            futures = [pool.submit(agent.act, STATES[i], CANDIDATES[i]) for i in range(4)]
+            for future in futures:
+                with pytest.raises(InferenceServerError):
+                    future.result(timeout=10)
+    finally:
+        agent.close()
