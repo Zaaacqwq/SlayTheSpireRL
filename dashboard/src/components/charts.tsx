@@ -8,7 +8,10 @@ import { useI18n } from '../i18n'
 /* Chart chrome (dataviz dark tokens). SVG attributes need literal colors. */
 const INK_MUTED = '#898781'
 const GRID = '#2c2c2a'
-const SERIES = { blue: '#3987e5', aqua: '#199e70', yellow: '#c98500', violet: '#9085e9' }
+export const SERIES = {
+  blue: '#3987e5', aqua: '#199e70', yellow: '#c98500', violet: '#9085e9',
+  red: '#cf5c36', pink: '#c2589e', teal: '#2f9e9e', grey: '#898781',
+}
 
 const TOOLTIP_STYLE = {
   background: '#222221', border: '1px solid rgba(255,255,255,0.1)',
@@ -51,13 +54,13 @@ function StageBands({ segments }: { segments: StageSegment[] }) {
   </>
 }
 
-interface SeriesSpec {
+export interface SeriesSpec {
   key: string
   name: string
   color: string
 }
 
-function MetricChart({ rows, segments, series, height, percent = false }: {
+export function MetricChart({ rows, segments, series, height, percent = false }: {
   rows: MetricRow[]; segments: StageSegment[]; series: SeriesSpec[]
   height: number; percent?: boolean
 }) {

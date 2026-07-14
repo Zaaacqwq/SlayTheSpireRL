@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react'
-import { BarChart3, BookOpen, Languages, Radio, RefreshCw, Route } from 'lucide-react'
+import { BarChart3, BookOpen, Languages, Radio, RefreshCw, Route, Stethoscope } from 'lucide-react'
 import { fetchRuns } from './api'
 import type { Episode, Run } from './types'
 import { Overview } from './views/Overview'
+import { Diagnostics } from './views/Diagnostics'
 import { EMPTY_FILTERS, Episodes, type EpisodeFilters } from './views/Episodes'
 import { Replay, type ReplayTarget } from './views/Replay'
 import { Live } from './views/Live'
 import { useI18n } from './i18n'
 
-type Tab = 'overview' | 'episodes' | 'replay' | 'live'
+type Tab = 'overview' | 'diagnostics' | 'episodes' | 'replay' | 'live'
 
 const LEGACY_RUN = (episodeCount: number): Run => ({
   name: 'legacy', config: {}, history_count: 0, episode_count: episodeCount, checkpoints: 0,
@@ -80,6 +81,9 @@ export default function App() {
           <button className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}>
             <BarChart3 />{t('nav.overview')}
           </button>
+          <button className={tab === 'diagnostics' ? 'active' : ''} onClick={() => setTab('diagnostics')}>
+            <Stethoscope />{t('nav.diagnostics')}
+          </button>
           <button className={tab === 'episodes' ? 'active' : ''} onClick={() => setTab('episodes')}>
             <BookOpen />{t('nav.episodes')}
           </button>
@@ -128,6 +132,8 @@ export default function App() {
           <div className="empty">{t('run.notFound')}</div>
         ) : tab === 'overview' ? (
           <Overview run={run} onInspectIteration={inspectIteration} />
+        ) : tab === 'diagnostics' ? (
+          <Diagnostics run={run} />
         ) : tab === 'episodes' ? (
           <Episodes run={run} filters={filters} onFilters={setFilters} onOpen={openEpisode} />
         ) : tab === 'replay' ? (

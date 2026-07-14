@@ -15,7 +15,6 @@ import time
 from urllib.parse import parse_qs, unquote, urlparse
 
 
-DEFAULT_DATA_ROOT = Path("/Users/zaaac/Documents/Code/SlayTheSpireRL/rl/runs")
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_DIST = REPO_ROOT / "dashboard" / "dist"
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
@@ -51,12 +50,13 @@ def _json_lines(path: Path):
 
 
 def default_data_root() -> Path:
+    # Was hardcoded to one developer's macOS home, which resolves nowhere else.
     if env := os.environ.get("STS2_RL_DASHBOARD_DATA_ROOT"):
         return Path(env)
-    for candidate in (DEFAULT_DATA_ROOT, Path.cwd() / "rl" / "runs", REPO_ROOT / "rl" / "runs"):
+    for candidate in (Path.cwd() / "rl" / "runs", REPO_ROOT / "rl" / "runs"):
         if candidate.exists():
             return candidate
-    return DEFAULT_DATA_ROOT
+    return REPO_ROOT / "rl" / "runs"
 
 
 def _live_run_dir(data_root: Path, run_name: str) -> Path:
@@ -160,6 +160,28 @@ def _pivot_scalars(rows: list[dict]) -> list[dict]:
     return [by_step[key] for key in sorted(by_step)]
 
 
+# Nested diagnostic blocks the trainer emits; charts need flat numeric columns.
+# `action_mix` is open-ended (one key per action type), so it is prefixed rather
+# than enumerated — a series that is flat zero means the policy cannot reach that
+# action at all, which is exactly how the potion bug hid for five versions.
+_NESTED_METRICS = ("reward_health", "depth")
+
+
+def _flatten_diagnostics(row: dict, raw: dict) -> None:
+    for block in _NESTED_METRICS:
+        values = raw.get(block)
+        if isinstance(values, dict):
+            for key, value in values.items():
+                if isinstance(value, bool):
+                    row[key] = 1.0 if value else 0.0
+                elif isinstance(value, (int, float)):
+                    row[key] = value
+    mix = raw.get("action_mix")
+    if isinstance(mix, dict):
+        for action, fraction in mix.items():
+            row[f"action_{action}"] = fraction
+
+
 def load_history_for_run(data_root: Path, run_dir: Path) -> tuple[list[dict], str | None]:
     candidates = [run_dir / "history.jsonl", data_root / f"{run_dir.name}.log",
                   data_root / f"{run_dir.name}.jsonl"]
@@ -174,6 +196,7 @@ def load_history_for_run(data_root: Path, run_dir: Path) -> tuple[list[dict], st
                 row = by_iteration.setdefault(iteration, {"iteration": iteration})
                 if any(key in raw for key in ("train_win_rate", "loss", "avg_floor")):
                     row.update(raw)
+                    _flatten_diagnostics(row, raw)
                 dev = raw.get("dev")
                 if isinstance(dev, dict):
                     for key, value in dev.items():

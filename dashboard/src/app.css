@@ -329,3 +329,29 @@ details summary { cursor: pointer; color: var(--ink-3); font-size: 12px; margin-
 .deck-list em { font-style: normal; color: var(--ink-3); }
 .token-row { display: flex; gap: 6px; flex-wrap: wrap; }
 .token-row span { background: var(--surface-2); border-radius: 4px; padding: 2px 8px; font-size: 11.5px; }
+
+/* ── Diagnostics ───────────────────────────────────── */
+/* The reward-inversion alarm has to be impossible to scroll past: a training run
+   whose losses out-return its wins is teaching the policy to lose, and every other
+   number on the page is meaningless until it is fixed. */
+.alarm {
+  display: flex; flex-direction: column; gap: 4px;
+  background: color-mix(in srgb, var(--critical) 18%, var(--surface));
+  border: 1px solid var(--critical);
+  border-left: 4px solid var(--critical);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  margin-bottom: 12px;
+}
+.alarm b { color: var(--critical); font-size: 13px; letter-spacing: 0.02em; }
+.alarm span { color: var(--ink-2); font-size: 12.5px; line-height: 1.5; }
+
+.reassure {
+  color: var(--ink-3); font-size: 12.5px;
+  padding: 6px 0 10px;
+}
+
+.funnel-note {
+  color: var(--ink-3); font-size: 12.5px;
+  padding-top: 10px;
+}
