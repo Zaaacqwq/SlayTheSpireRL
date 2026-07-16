@@ -101,6 +101,47 @@ def test_run_episode_emits_compact_live_events_without_affecting_record():
     assert events[1]["floor"] == 1.0 and events[1]["round"] == 2
 
 
+def test_circuit_breaker_suppresses_engine_noop_buy_loop():
+    # A full potion belt makes the engine swallow the failed buy and return a
+    # byte-identical shop state, which used to lock a greedy policy into buying
+    # forever until the 600-step truncation. The breaker must catch the no-op,
+    # stop offering that action, and let the run leave the shop and finish.
+    from sts2rl.agent import AgentStep
+
+    buy = ActionCandidate("buy_potion", {"potion_index": 0})
+    leave = ActionCandidate("leave_room", {})
+    shop = DecisionState({
+        "decision": "shop", "context": {"act": 1, "floor": 5},
+        "player": {"hp": 50, "max_hp": 80, "gold": 999},
+        "potions": [{"index": 0, "name": "Fire Potion", "affordable": True}],
+    }, (buy, leave))
+    win = DecisionState({"decision": "game_over", "victory": True, "act": 1, "floor": 5}, ())
+
+    class Client:
+        def reset(self, _config):
+            return shop
+
+        def step(self, action):
+            if action.action == "buy_potion":
+                return StepResult(shop, terminated=False)  # engine no-op: identical state
+            return StepResult(win, terminated=True)
+
+    class Agent:
+        # Always prefers the first offered candidate — i.e. buy_potion while it is
+        # still offered. Without the breaker this loops to max_episode_steps.
+        def act(self, _raw, candidates, _hidden, **_kwargs):
+            return AgentStep(0, -0.2, 0.4, None)
+
+    record = run_episode(Client(), _run_stage(), "seed-shop", Agent(), PPOConfig())
+
+    assert record.outcome is True and not record.truncated
+    assert record.noop_steps == 1  # exactly one dead buy, then it was masked
+    chosen = [s.candidates[s.index].action for s in record.steps]
+    assert chosen == ["buy_potion", "leave_room"]
+    # once proven inert the action is no longer even presented to the policy
+    assert record.steps[-1].candidates == (leave,)
+
+
 def test_ppo_update_epoch_raises_probability_of_advantaged_action():
     torch.manual_seed(0)
     vocab = EntityVocab({})

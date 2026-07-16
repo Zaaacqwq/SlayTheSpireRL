@@ -517,6 +517,10 @@ def main() -> int:
             # more for dying at the boss than for beating it.
             row["reward_health"] = health
             row["action_mix"] = action_mix(records)
+            # Engine no-op loops (e.g. buy_potion into a full belt) that the
+            # circuit breaker caught and suppressed this iteration. Should trend to
+            # a small, stable count; a spike means a new swallowed-exception no-op.
+            row["noop_steps"] = sum(r.noop_steps for r in records)
             if not stage.is_combat:
                 row["depth"] = depth_profile(records)
             if health["inverted"]:

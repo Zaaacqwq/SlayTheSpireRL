@@ -67,6 +67,45 @@ class EpisodeRecord:
     final_floor: float = 0.0
     advantages: list[float] = field(default_factory=list)
     returns: list[float] = field(default_factory=list)
+    noop_steps: int = 0
+
+
+def _action_key(action: ActionCandidate) -> tuple[str, tuple[tuple[str, Any], ...]]:
+    """Hashable identity for an action. ``command()`` returns an unhashable dict,
+    so build a stable key from the action name plus its (index-valued) args."""
+    return (action.action, tuple(sorted((action.args or {}).items())))
+
+
+class NoopGuard:
+    """Breaks engine no-op loops. Some actions fail inside the engine, have their
+    exception swallowed, and return a byte-identical decision state — notably shop
+    ``buy_potion`` into a full potion belt. A greedy policy then re-selects the
+    same dead action forever until step-limit truncation. This remembers, per
+    decision state, which actions proved inert there and stops offering them, so
+    the policy is pushed onto a progressing action (a shop always still offers
+    ``leave_room``). Shared by the training and evaluation rollout loops."""
+
+    def __init__(self) -> None:
+        self._banned: dict[str, set[tuple[str, tuple[tuple[str, Any], ...]]]] = {}
+        self.noop_steps = 0
+
+    def offer(self, state: DecisionState) -> tuple[ActionCandidate, ...]:
+        """The candidates worth presenting to the policy: the full set minus any
+        proven-inert here. Never returns empty — falls back to the full set."""
+        banned = self._banned.get(state.state_hash)
+        if not banned:
+            return state.candidates
+        effective = tuple(c for c in state.candidates if _action_key(c) not in banned)
+        return effective or state.candidates
+
+    def record(self, before_hash: str, after_hash: str, action: ActionCandidate) -> bool:
+        """Note the transition; if it left the state byte-identical, ban the action
+        in that state so it is not offered again. Returns True on a no-op."""
+        if before_hash == after_hash:
+            self._banned.setdefault(before_hash, set()).add(_action_key(action))
+            self.noop_steps += 1
+            return True
+        return False
 
 
 def _floor(state: DecisionState) -> float:
@@ -153,6 +192,7 @@ def run_episode(
     # recorded as floor 0 — dragging avg_floor *down* for every episode actually won.
     # Defined before the try so a failing reset cannot leave it unbound.
     deepest_floor = 0.0
+    noop_guard = NoopGuard()
     _emit_live(live_callback, {
         "type": "episode_start", "status": "starting", "episode_id": seed,
         "seed": seed, "step": 0,
@@ -176,21 +216,29 @@ def run_episode(
                     "seed": seed, "step": len(steps), "outcome": outcome,
                     **_state_summary(state),
                 })
-                return EpisodeRecord(seed, steps, outcome, truncated=False, final_floor=deepest_floor)
+                return EpisodeRecord(seed, steps, outcome, truncated=False,
+                                     final_floor=deepest_floor, noop_steps=noop_guard.noop_steps)
             if len(steps) >= config.max_episode_steps:
                 _emit_live(live_callback, {
                     "type": "episode_end", "status": "truncated", "episode_id": seed,
                     "seed": seed, "step": len(steps), "outcome": None,
                     **_state_summary(state),
                 })
-                return EpisodeRecord(seed, steps, None, truncated=True, final_floor=deepest_floor)
+                return EpisodeRecord(seed, steps, None, truncated=True,
+                                     final_floor=deepest_floor, noop_steps=noop_guard.noop_steps)
+            current_hash = state.state_hash
+            # The policy only ever sees — and the trajectory only ever records — the
+            # candidates actually presented, so PPO's re-scored log-probs stay
+            # consistent with the sampled action's candidate set.
+            effective = noop_guard.offer(state)
             if inference_lock:
                 with inference_lock:
-                    step = agent.act(state.raw, state.candidates, hidden, greedy=greedy)
+                    step = agent.act(state.raw, effective, hidden, greedy=greedy)
             else:
-                step = agent.act(state.raw, state.candidates, hidden, greedy=greedy)
-            action = state.candidates[step.index]
+                step = agent.act(state.raw, effective, hidden, greedy=greedy)
+            action = effective[step.index]
             result = client.step(action)
+            noop_guard.record(current_hash, result.state.state_hash, action)
             reward = 0.0
             if config.floor_shaping and not stage.is_combat:
                 # Potential-based shaping is policy-invariant only when EVERY terminal
@@ -207,7 +255,7 @@ def run_episode(
                 reward += 0.2 * (config.gamma * new_floor - previous_floor)
                 previous_floor = new_floor
             steps.append(StoredStep(
-                dict(state.raw), tuple(state.candidates), step.index,
+                dict(state.raw), tuple(effective), step.index,
                 step.logp, step.value, reward, hidden,
             ))
             _emit_live(live_callback, {
@@ -226,7 +274,7 @@ def run_episode(
             "seed": seed, "step": len(steps), "error": type(exc).__name__, **summary,
         })
         return EpisodeRecord(seed, steps, None, truncated=False, error=type(exc).__name__,
-                             final_floor=deepest_floor)
+                             final_floor=deepest_floor, noop_steps=noop_guard.noop_steps)
 
 
 def _terminal_outcome(stage: CurriculumStage, state: DecisionState) -> tuple[bool | None, bool]:

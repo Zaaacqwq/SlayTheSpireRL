@@ -31,6 +31,7 @@ from sts2rl.entities import EntityVocab
 from sts2rl.features import CANDIDATE_FEATURE_DIM
 from sts2rl.model import EntityRecurrentPolicy
 from sts2rl.policy import heuristic_action
+from sts2rl.ppo import NoopGuard
 
 CLI_ROOT = REPO_ROOT / "external" / "sts2-cli"
 DLL = CLI_ROOT / "src" / "Sts2Headless" / "bin" / "Debug" / "net9.0" / "Sts2Headless.dll"
@@ -51,17 +52,24 @@ def run_policy_episode(client: EngineClient, seed: str, agent: PolicyAgent,
                        lock: threading.Lock) -> dict:
     steps = 0
     start = time.perf_counter()
+    # Same breaker as training: without it, a full-belt buy_potion no-op locks a
+    # greedy eval into a shop until MAX_STEPS, scoring a spurious loss.
+    guard = NoopGuard()
     try:
         state = client.reset(RunConfig("Ironclad", seed))
         hidden = None
         while steps < MAX_STEPS and state.phase != "game_over":
+            before_hash = state.state_hash
+            effective = guard.offer(state)
             with lock:
-                step = agent.act(state.raw, state.candidates, hidden, greedy=True)
+                step = agent.act(state.raw, effective, hidden, greedy=True)
             hidden = step.hidden
-            state = client.step(state.candidates[step.index]).state
+            action = effective[step.index]
+            state = client.step(action).state
+            guard.record(before_hash, state.state_hash, action)
             steps += 1
         return {"seed": seed, "outcome": state.raw.get("victory") if state.phase == "game_over" else None,
-                "steps": steps, "phase": state.phase, "error": None,
+                "steps": steps, "phase": state.phase, "noop_steps": guard.noop_steps, "error": None,
                 "seconds": round(time.perf_counter() - start, 2)}
     except Exception as exc:
         return {"seed": seed, "outcome": None, "steps": steps, "phase": None,
