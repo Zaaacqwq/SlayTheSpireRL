@@ -25,10 +25,11 @@ class EngineTimeout(EngineError):
 class EngineFatal(EngineError):
     """The CLI poisoned its engine state and requires a fresh process."""
 
-    def __init__(self, code: str, message: str):
+    def __init__(self, code: str, message: str, stack_trace: str | None = None):
         super().__init__(f"{code}: {message}")
         self.code = code
         self.detail = message
+        self.stack_trace = stack_trace
 
 
 def check_engine_response(response: Mapping[str, Any]) -> None:
@@ -36,6 +37,7 @@ def check_engine_response(response: Mapping[str, Any]) -> None:
         raise EngineFatal(
             str(response.get("code", "engine_fatal")),
             str(response.get("message", "engine process is unusable")),
+            response.get("stack_trace"),
         )
 
 
