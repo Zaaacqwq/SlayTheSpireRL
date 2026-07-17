@@ -191,5 +191,10 @@ def ironclad_stages(
         # them in masked near-zero boss win rates behind a passing stage score.
         stages.append(CurriculumStage("boss_combat", boss, loadouts=tuple(boss_loadouts)))
     stages.append(CurriculumStage("act1", max_act=1))
+    # Act 1+2 before the full run: with act1 cleared ~74%, capping at act 2 keeps
+    # the act2 learning signal from being diluted by the sparse act3 tail (and runs
+    # end sooner, so iterations are faster). act1 keeps co-training here too. The
+    # full 3-act stage follows once act1+2 is solid.
+    stages.append(CurriculumStage("acts_12", max_act=2))
     stages.append(CurriculumStage("full_a0"))
     return tuple(stages)

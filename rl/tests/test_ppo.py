@@ -29,11 +29,12 @@ CATALOG = [
 
 def test_ironclad_stages_follow_the_roadmap_ladder():
     stages = ironclad_stages(CATALOG)
-    assert [s.name for s in stages] == ["normal_combat", "mixed_combat", "act1", "full_a0"]
+    assert [s.name for s in stages] == ["normal_combat", "mixed_combat", "act1", "acts_12", "full_a0"]
     assert set(stages[0].encounters) == {"W1", "W2", "R1"}
     assert set(stages[1].encounters) == {"W1", "W2", "R1", "E1"}
     assert stages[2].max_act == 1 and not stages[2].is_combat
-    assert stages[3].encounters == () and stages[3].max_act is None
+    assert stages[3].max_act == 2 and not stages[3].is_combat
+    assert stages[4].encounters == () and stages[4].max_act is None
 
 
 def test_encounter_sampling_is_deterministic_and_seed_sensitive():
@@ -48,7 +49,7 @@ def test_episode_config_selects_combat_or_run():
     combat = episode_config(stages[0], "seed-1")
     assert isinstance(combat, CombatConfig)
     assert combat.deck == IRONCLAD_STARTING_DECK
-    full = episode_config(stages[3], "seed-1")
+    full = episode_config(stages[4], "seed-1")
     assert isinstance(full, RunConfig)
 
 
@@ -232,7 +233,7 @@ def test_boss_bridge_stage_uses_harvested_loadouts():
     )
     stages = ironclad_stages(CATALOG, loadouts)
     names = [s.name for s in stages]
-    assert names == ["normal_combat", "mixed_combat", "boss_combat", "act1", "full_a0"]
+    assert names == ["normal_combat", "mixed_combat", "boss_combat", "act1", "acts_12", "full_a0"]
     bridge = stages[2]
     assert set(bridge.encounters) == {"B1"}
     assert sample_loadout(bridge, "seed-1") == sample_loadout(bridge, "seed-1")
@@ -241,7 +242,7 @@ def test_boss_bridge_stage_uses_harvested_loadouts():
     assert config.deck == chosen.deck and config.hp == chosen.hp
     # without loadouts the ladder is unchanged
     assert [s.name for s in ironclad_stages(CATALOG)] == [
-        "normal_combat", "mixed_combat", "act1", "full_a0"]
+        "normal_combat", "mixed_combat", "act1", "acts_12", "full_a0"]
 
 
 def test_on_policy_boss_snapshot_preserves_upgrades_and_actual_encounter():
