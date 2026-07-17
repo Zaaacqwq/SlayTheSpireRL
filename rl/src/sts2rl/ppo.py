@@ -46,7 +46,9 @@ class PPOConfig:
     # and "die on floor 3" both score -1: no signal keeps the policy from
     # entropy-collapsing. This milestone restores a dense per-act progress reward
     # for *beating* a boss (not just reaching it, so it can't relearn walk-and-die).
-    act_clear_bonus: float = 0.4
+    # Set to 1.0 to match the +1 the act1 stage paid for clearing act1 — 0.4 only
+    # slowed the collapse (entropy still crept 0.75->0.82) instead of stopping it.
+    act_clear_bonus: float = 1.0
     max_grad_norm: float = 0.5
     target_kl: float | None = None
     hard_kl_stop: float | None = None
