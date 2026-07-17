@@ -13,6 +13,12 @@ DECISIONS = frozenset({
     "shop", "game_over", "bundle_select", "card_select",
 })
 
+# Cap on how many multi-card select_cards combinations a single card_select may
+# enumerate. C(n, k) explodes (choose 4 from a 30-card pile = 27,405), which
+# blows up the padded candidate tensor during PPO batching (a 34 GiB alloc in
+# full_a0). 256 keeps memory bounded while covering all ordinary small selects.
+SELECT_CARDS_CANDIDATE_BUDGET = 256
+
 
 class ProtocolError(RuntimeError):
     pass
@@ -145,8 +151,20 @@ def legal_actions(state: Mapping[str, Any]) -> tuple[ActionCandidate, ...]:
         # Bound combinations to the declared range; unknown larger ranges fail closed.
         if cards and 0 < min_select <= max_select <= 4:
             indices = [str(card["index"]) for card in cards]
-            for size in range(min_select, max_select + 1):
-                out.extend(ActionCandidate("select_cards", {"indices": ",".join(combo)}) for combo in itertools.combinations(indices, size))
+            # C(n, k) is combinatorial: a "choose 4 from a 30-card pile" select in
+            # act2/3 is tens of thousands of candidates, which blows up the padded
+            # candidate tensor (a single 34 GiB alloc seen in full_a0). Enumerate
+            # deterministically up to a budget so memory stays bounded; the chosen
+            # action stays reproducible because combinations() order is fixed.
+            combos = (
+                combo
+                for size in range(min_select, max_select + 1)
+                for combo in itertools.combinations(indices, size)
+            )
+            out.extend(
+                ActionCandidate("select_cards", {"indices": ",".join(combo)})
+                for combo in itertools.islice(combos, SELECT_CARDS_CANDIDATE_BUDGET)
+            )
     elif phase == "shop":
         for key, action, arg in (("cards", "buy_card", "card_index"), ("relics", "buy_relic", "relic_index"), ("potions", "buy_potion", "potion_index")):
             for item in state.get(key, []):

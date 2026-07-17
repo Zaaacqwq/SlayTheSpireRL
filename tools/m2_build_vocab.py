@@ -13,6 +13,7 @@ import json
 import os
 import argparse
 from pathlib import Path
+import re
 import shutil
 import sys
 
@@ -70,6 +71,27 @@ def localized_option_keys(localization: dict[str, object]) -> set[str]:
     }
 
 
+_EVENT_VAR_TEMPLATE = re.compile(r"\{([A-Za-z][A-Za-z0-9_]*)")
+
+
+def localized_event_var_keys(localization: object) -> set[str]:
+    """Every EVENT_VAR.* identity, harvested from the ``{Var}`` templates in event
+    localization text. Static and complete, so act2/3 event variables (MysteryBox,
+    Wongo, ...) are covered without a runtime sweep having to reach them — the gap
+    that made full_a0 abort on unknown_entities."""
+    keys: set[str] = set()
+    stack: list[object] = [localization]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, str):
+            keys.update(f"EVENT_VAR.{m.group(1)}" for m in _EVENT_VAR_TEMPLATE.finditer(node))
+        elif isinstance(node, dict):
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node)
+    return keys
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -102,6 +124,7 @@ def main() -> int:
         # finite random sweep cannot guarantee it will visit.
         event_localization = json.loads(EVENT_LOCALIZATION_PATH.read_text(encoding="utf-8"))
         discovered["option"].update(localized_option_keys(event_localization))
+        discovered["event_var"].update(localized_event_var_keys(event_localization))
 
         def discover(raw: dict) -> None:
             for entity in normalize_state(raw).entities:
@@ -166,7 +189,9 @@ def main() -> int:
         discovered["map_edge"].add("MAP_EDGE")
         discovered["card_target"].add("CARD_TARGET.DAMAGE")
         # A stable RandomCardId may reference any catalogued card even if the
-        # bounded event sweep does not happen to roll it.
+        # bounded event sweep does not happen to roll it. It also appears in its
+        # bare form (no card resolved yet), e.g. act2/3 merchant events.
+        discovered["event_var"].add("EVENT_VAR.RandomCardId")
         discovered["event_var"].update(
             f"EVENT_VAR.RandomCardId.{card_id}"
             for card_id in catalog_ids["card"]

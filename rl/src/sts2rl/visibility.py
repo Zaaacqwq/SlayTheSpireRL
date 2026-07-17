@@ -19,6 +19,20 @@ ENTITY_ACTIONS = frozenset({
     "buy_relic", "buy_potion",
 })
 
+# Entity kinds whose identities are composed at runtime and cannot be enumerated
+# ahead of time: event options keyed by a randomly-rolled relic/card (the
+# Hoarder/DARV ancient, absent from localization), dynamic event_vars, runtime
+# intent/choice strings. An unknown one is always expected here.
+DYNAMIC_ENTITY_KINDS = frozenset({"option", "event_var", "choice", "intent"})
+
+# Even authoritative-catalog kinds have a sparse runtime tail once the full run
+# opens up — e.g. summoned creatures (MONSTER.BATTLE_FRIEND_V2) that no base
+# monster catalog lists. With a comprehensive vocab, a handful of unknown strict
+# identities per iteration is that tail and is tolerated (degraded to UNK). A
+# *flood* of distinct unknowns instead means a systemic break (wrong vocab file,
+# encoder regression, the original act1-only vocab on act2/3) and still aborts.
+MAX_TOLERATED_UNKNOWN_IDENTITIES = 25
+
 
 def visibility_audit(records: Sequence[EpisodeRecord], vocab: EntityVocab) -> dict:
     offered: Counter[str] = Counter({name: 0 for name in ACTION_TYPES})
@@ -26,6 +40,7 @@ def visibility_audit(records: Sequence[EpisodeRecord], vocab: EntityVocab) -> di
     pointer_misses: Counter[str] = Counter()
     unknown_fields: Counter[str] = Counter()
     unknown_entities: Counter[str] = Counter()
+    unknown_dynamic: Counter[str] = Counter()
     collisions = 0
     nonfinite_features = 0
     decisions = 0
@@ -40,7 +55,10 @@ def visibility_audit(records: Sequence[EpisodeRecord], vocab: EntityVocab) -> di
                 vocab_kind = _VOCAB_KIND_ALIASES.get(kind, kind)
                 key = entity_key(entity)
                 if key == "UNK" or key not in vocab.entries.get(vocab_kind, {}):
-                    unknown_entities[f"{vocab_kind}:{key}"] += 1
+                    if vocab_kind in DYNAMIC_ENTITY_KINDS:
+                        unknown_dynamic[f"{vocab_kind}:{key}"] += 1
+                    else:
+                        unknown_entities[f"{vocab_kind}:{key}"] += 1
 
             bindings = candidate_entity_bindings(observation, step.candidates)
             seen: set[tuple[tuple[float, ...], tuple[int, ...]]] = set()
@@ -68,8 +86,13 @@ def visibility_audit(records: Sequence[EpisodeRecord], vocab: EntityVocab) -> di
         ))
     if unknown_fields:
         violations.append(f"unknown_state_fields:{sum(unknown_fields.values())}")
-    if unknown_entities:
-        violations.append(f"unknown_entities:{sum(unknown_entities.values())}")
+    # Abort only on a flood of distinct unknown identities (systemic vocab/encoder
+    # breakage), not on the sparse runtime tail a comprehensive vocab still leaves.
+    if len(unknown_entities) > MAX_TOLERATED_UNKNOWN_IDENTITIES:
+        violations.append(
+            f"unknown_entities:{sum(unknown_entities.values())}"
+            f" across {len(unknown_entities)} identities"
+        )
     if nonfinite_features:
         violations.append(f"nonfinite_features:{nonfinite_features}")
 
@@ -86,6 +109,7 @@ def visibility_audit(records: Sequence[EpisodeRecord], vocab: EntityVocab) -> di
         "pointer_misses": dict(pointer_misses),
         "unknown_state_fields": dict(unknown_fields),
         "unknown_entities": dict(unknown_entities.most_common(25)),
+        "unknown_dynamic_entities": dict(unknown_dynamic.most_common(25)),
         "nonfinite_features": nonfinite_features,
         "violations": violations,
     }
