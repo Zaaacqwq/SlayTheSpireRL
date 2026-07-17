@@ -15,14 +15,14 @@ export const outcomeLabel = (value: unknown, locale: Locale = 'zh-CN'): string =
     : won(value) ? (locale === 'en-US' ? 'Win' : '胜利') : (locale === 'en-US' ? 'Loss' : '失败')
 
 /** Stage display order also drives the band tints on the learning charts. */
-export const STAGE_ORDER = ['normal_combat', 'mixed_combat', 'boss_combat', 'act1', 'full_a0']
+export const STAGE_ORDER = ['normal_combat', 'mixed_combat', 'boss_combat', 'act1', 'acts_12', 'full_a0']
 
 /* Combat stages are single fights spawned by start_combat: they happen on floor 1
  * and nowhere else, so their avg_floor is the constant 1.0 and their boss funnel is
  * undefined. Charting them beside act1 flattens the only curve that carries signal.
  * Stages are therefore viewed one at a time, and floor/funnel panels are hidden for
  * the ones where those numbers mean nothing. */
-export const RUN_STAGES = ['act1', 'full_a0']
+export const RUN_STAGES = ['act1', 'acts_12', 'full_a0']
 
 export const isRunStage = (stage?: string | null): boolean =>
   !!stage && RUN_STAGES.includes(stage)
@@ -32,16 +32,23 @@ export const STAGE_LABELS: Record<string, string> = {
   mixed_combat: '混合战斗',
   boss_combat: 'Boss 战',
   act1: '第一幕全程',
+  acts_12: '前两幕全程',
   full_a0: '完整爬塔',
 }
 
 export const STAGE_LABELS_EN: Record<string, string> = {
   normal_combat: 'Normal Combat', mixed_combat: 'Mixed Combat', boss_combat: 'Boss Combat',
-  act1: 'Full Act 1', full_a0: 'Full A0 Run',
+  act1: 'Full Act 1', acts_12: 'Acts 1-2', full_a0: 'Full A0 Run',
 }
 
 export const stageLabel = (stage?: string | null, locale: Locale = 'zh-CN'): string =>
   stage ? ((locale === 'en-US' ? STAGE_LABELS_EN : STAGE_LABELS)[stage] ?? stage) : '—'
+
+/** Dev-eval win rate a stage must clear to advance (trainer ADVANCE_THRESHOLDS,
+ *  tools/m2_train.py). The curriculum gate promotes on greedy dev win rate. */
+export const STAGE_THRESHOLDS: Record<string, number> = {
+  normal_combat: 0.80, mixed_combat: 0.60, boss_combat: 0.30, act1: 0.30, acts_12: 0.30, full_a0: 0.40,
+}
 
 const STAGE_TINTS = ['#3987e5', '#199e70', '#e66767', '#c98500', '#9085e9']
 
