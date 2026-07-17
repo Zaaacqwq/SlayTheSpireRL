@@ -72,7 +72,8 @@ class EpisodeRecord:
     outcome: bool | None
     truncated: bool
     error: str | None = None
-    final_floor: float = 0.0
+    final_floor: float = 0.0  # CUMULATIVE across acts (act2 floor 3 = 20), not per-act
+    final_act: int = 1
     advantages: list[float] = field(default_factory=list)
     returns: list[float] = field(default_factory=list)
     noop_steps: int = 0
@@ -124,6 +125,17 @@ def _floor(state: DecisionState) -> float:
 def _act(state: DecisionState) -> int:
     context = state.raw.get("context") or {}
     return int(context.get("act", state.raw.get("act", 0)) or 0)
+
+
+# The engine numbers floors per act (each act restarts at 1, boss ~17), so the
+# raw floor caps at ~17 whether the run died at the act1 boss or cleared act2.
+# For depth telemetry we accumulate a whole act's span when the act advances, so
+# "floor" reads as true progress: act1 1-17, act2 18-34, act3 35+.
+ACT_FLOOR_SPAN = 17
+
+
+def _cumulative_floor(state: DecisionState) -> float:
+    return (_act(state) - 1) * ACT_FLOOR_SPAN + _floor(state)
 
 
 LiveCallback = Callable[[Mapping[str, Any]], None]
@@ -200,6 +212,7 @@ def run_episode(
     # recorded as floor 0 — dragging avg_floor *down* for every episode actually won.
     # Defined before the try so a failing reset cannot leave it unbound.
     deepest_floor = 0.0
+    deepest_act = 1
     noop_guard = NoopGuard()
     _emit_live(live_callback, {
         "type": "episode_start", "status": "starting", "episode_id": seed,
@@ -211,10 +224,11 @@ def run_episode(
         else:
             state = client.reset(episode)
         hidden: tuple[float, ...] | None = None
-        previous_floor = _floor(state)
-        deepest_floor = previous_floor
+        previous_floor = _floor(state)  # per-act, for potential-based shaping (unchanged)
+        deepest_floor = _cumulative_floor(state)
         while True:
-            deepest_floor = max(deepest_floor, _floor(state))
+            deepest_act = max(deepest_act, _act(state))
+            deepest_floor = max(deepest_floor, _cumulative_floor(state))
             outcome, done = _terminal_outcome(stage, state)
             if done:
                 if steps:
@@ -225,7 +239,8 @@ def run_episode(
                     **_state_summary(state),
                 })
                 return EpisodeRecord(seed, steps, outcome, truncated=False,
-                                     final_floor=deepest_floor, noop_steps=noop_guard.noop_steps)
+                                     final_floor=deepest_floor, final_act=deepest_act,
+                                     noop_steps=noop_guard.noop_steps)
             if len(steps) >= config.max_episode_steps:
                 _emit_live(live_callback, {
                     "type": "episode_end", "status": "truncated", "episode_id": seed,
@@ -233,7 +248,8 @@ def run_episode(
                     **_state_summary(state),
                 })
                 return EpisodeRecord(seed, steps, None, truncated=True,
-                                     final_floor=deepest_floor, noop_steps=noop_guard.noop_steps)
+                                     final_floor=deepest_floor, final_act=deepest_act,
+                                     noop_steps=noop_guard.noop_steps)
             current_hash = state.state_hash
             # The policy only ever sees — and the trajectory only ever records — the
             # candidates actually presented, so PPO's re-scored log-probs stay
@@ -287,7 +303,8 @@ def run_episode(
             "seed": seed, "step": len(steps), "error": type(exc).__name__, **summary,
         })
         return EpisodeRecord(seed, steps, None, truncated=False, error=type(exc).__name__,
-                             final_floor=deepest_floor, noop_steps=noop_guard.noop_steps)
+                             final_floor=deepest_floor, final_act=deepest_act,
+                                     noop_steps=noop_guard.noop_steps)
 
 
 def _terminal_outcome(stage: CurriculumStage, state: DecisionState) -> tuple[bool | None, bool]:

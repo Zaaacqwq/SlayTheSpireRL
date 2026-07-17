@@ -1,4 +1,26 @@
-export type MetricRow = Record<string, string | number | null> & { iteration: number; stage?: string }
+/* Backend passes the full flattened history row through /metrics, so numeric
+ * columns (train_win_rate, action_*, win_return, approx_kl, …) sit alongside the
+ * untouched nested diagnostic blocks (visibility, reward_health, depth). */
+export interface VisibilityBlock {
+  decisions?: number
+  offered_actions?: Record<string, number>
+  chosen_actions?: Record<string, number>
+  never_offered_actions?: string[]
+  never_chosen_actions?: string[]
+  candidate_collisions?: number
+  pointer_misses?: Record<string, number>
+  unknown_state_fields?: Record<string, number>
+  unknown_entities?: Record<string, number>
+  nonfinite_features?: number
+  violations?: unknown[]
+}
+
+export interface MetricRow {
+  iteration: number
+  stage?: string
+  visibility?: VisibilityBlock
+  [key: string]: unknown
+}
 
 export interface RunStats {
   wins: number
@@ -23,6 +45,18 @@ export interface Run {
   availability: { metrics: boolean; episodes: boolean }
 }
 
+export interface TrainingControlStatus {
+  run_name: string
+  state: 'stopped' | 'starting' | 'running'
+  running: boolean
+  watchdog_pids: number[]
+  trainer_pids: number[]
+  worker_count: number
+  last_iteration: number | null
+  checkpoint: string | null
+  checkpoint_updated_at: string | null
+}
+
 export interface RoutePoint {
   floor: number | null
   room_type: string | null
@@ -38,6 +72,7 @@ export interface Episode {
   outcome?: boolean | string | null
   total_reward?: number | null
   final_floor?: number | null
+  final_act?: number | null
   steps: number
   truncated?: boolean
   error?: string | null

@@ -7,7 +7,7 @@ import { Empty, OutcomeBadge, RoomIcon } from '../components/ui'
 import { useI18n } from '../i18n'
 
 const PAGE_SIZE = 30
-const ACT1_TOP_FLOOR = 17
+const FULL_RUN_TOP_FLOOR = 51  // 3 acts x ~17; final_floor is cumulative across acts
 
 export interface EpisodeFilters {
   search: string
@@ -50,10 +50,9 @@ export function Episodes({ run, filters, onFilters, onOpen }: {
   return (
     <section className="panel">
       <div className="filter-row">
-        <div style={{ position: 'relative' }}>
-          <Search style={{ position: 'absolute', left: 8, top: 8, width: 14, height: 14, color: 'var(--ink-3)' }} />
+        <div className="search-wrap">
+          <Search />
           <input
-            style={{ paddingLeft: 28 }}
             value={filters.search}
             onChange={event => onFilters({ ...filters, search: event.target.value })}
             placeholder={t('episodes.search')}
@@ -100,7 +99,7 @@ export function Episodes({ run, filters, onFilters, onOpen }: {
                 </td>
                 <td>{stageLabel(episode.stage, locale)}</td>
                 <td><RouteStrip episode={episode} /></td>
-                <td><FloorBar floor={episode.final_floor} /></td>
+                <td><FloorBar floor={episode.final_floor} act={episode.final_act} /></td>
                 <td className="num">{episode.final_hp ?? '—'}{episode.max_hp ? ` / ${episode.max_hp}` : ''}</td>
                 <td className="num">{num(episode.total_reward)}</td>
                 <td className="num">{episode.steps}</td>
@@ -134,13 +133,13 @@ function RouteStrip({ episode }: { episode: Episode }) {
   )
 }
 
-function FloorBar({ floor }: { floor?: number | null }) {
+function FloorBar({ floor, act }: { floor?: number | null; act?: number | null }) {
   if (typeof floor !== 'number') return <span style={{ color: 'var(--ink-3)' }}>—</span>
-  const ratio = Math.min(1, floor / ACT1_TOP_FLOOR)
+  const ratio = Math.min(1, floor / FULL_RUN_TOP_FLOOR)
   return (
     <span className="floor-bar">
       <span className="track"><span className="fill" style={{ width: `${ratio * 100}%` }} /></span>
-      <span className="num">{num(floor, 0)}</span>
+      <span className="num">{typeof act === 'number' && act > 1 ? `A${act}·` : ''}{num(floor, 0)}</span>
     </span>
   )
 }

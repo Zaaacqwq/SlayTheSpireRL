@@ -103,7 +103,8 @@ class EpisodeArtifactWriter:
             "character": character,
             "outcome": record.outcome,
             "total_reward": total_reward,
-            "final_floor": record.final_floor,
+            "final_floor": record.final_floor,  # cumulative across acts
+            "final_act": record.final_act,
             "steps": len(record.steps),
             "truncated": record.truncated,
             "error": record.error,
