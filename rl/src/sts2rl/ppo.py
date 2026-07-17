@@ -41,6 +41,12 @@ class PPOConfig:
     episodes_per_iteration: int = 32
     max_episode_steps: int = 600
     floor_shaping: bool = True  # terminal-only ablation sets this False
+    # Reward for clearing an act boss (the act index advances). Floor shaping is
+    # potential-based (net zero), so on a multi-act stage "reach the act1 boss"
+    # and "die on floor 3" both score -1: no signal keeps the policy from
+    # entropy-collapsing. This milestone restores a dense per-act progress reward
+    # for *beating* a boss (not just reaching it, so it can't relearn walk-and-die).
+    act_clear_bonus: float = 0.4
     max_grad_norm: float = 0.5
     target_kl: float | None = None
     hard_kl_stop: float | None = None
@@ -254,6 +260,11 @@ def run_episode(
                 new_floor = 0.0 if next_done else _floor(result.state)
                 reward += 0.2 * (config.gamma * new_floor - previous_floor)
                 previous_floor = new_floor
+            # Milestone: beating an act boss advances the act index. A direct
+            # (non-potential) reward so clearing act N is strictly better than
+            # dying in it — the signal the policy-invariant shaping cannot give.
+            if not stage.is_combat and _act(result.state) > _act(state):
+                reward += config.act_clear_bonus
             steps.append(StoredStep(
                 dict(state.raw), tuple(effective), step.index,
                 step.logp, step.value, reward, hidden,
