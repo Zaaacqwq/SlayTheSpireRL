@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Crosshair, Swords } from 'lucide-react'
 import { fetchMetrics } from '../api'
 import { isRunStage, num, pct } from '../format'
@@ -56,23 +56,13 @@ export function Diagnostics({ run }: { run: Run }) {
       .map(([key], i) => ({ key, name: key.slice(ACTION_PREFIX.length), color: SERIES_ORDER[i % SERIES_ORDER.length] }))
   }, [metrics])
 
-  // Legend filter for the action-mix chart. Until the user touches it, the tail
-  // past the busiest TOP_ACTIONS is hidden so the default stays legible; the
-  // first click materialises that default into a concrete set and toggles it.
-  const [hiddenActions, setHiddenActions] = useState<Set<string> | null>(null)
-  const defaultHidden = useMemo(
-    () => new Set(actionSeries.slice(TOP_ACTIONS).map(spec => spec.key)),
+  // The chart's legend is itself the filter now (see MetricChart); we only seed
+  // which lines start hidden — the tail past the busiest TOP_ACTIONS, so the
+  // default view stays legible while every action stays one click away.
+  const actionDefaultHidden = useMemo(
+    () => actionSeries.slice(TOP_ACTIONS).map(spec => spec.key),
     [actionSeries],
   )
-  const hiddenActionSet = hiddenActions ?? defaultHidden
-  const toggleAction = useCallback((key: string) => {
-    setHiddenActions(prev => {
-      const next = new Set(prev ?? defaultHidden)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }, [defaultHidden])
 
   const reach = useMemo(() => reachability(metrics), [metrics])
 
@@ -141,7 +131,7 @@ export function Diagnostics({ run }: { run: Run }) {
       )}
       {actionSeries.length
         ? <MetricChart rows={metrics} segments={segments} height={220} percent series={actionSeries}
-                       hidden={hiddenActionSet} onToggle={toggleAction} />
+                       defaultHidden={actionDefaultHidden} />
         : <Empty text={t('common.noData')} />}
     </Panel>
 

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   CartesianGrid, Line, LineChart, ReferenceArea, ReferenceLine, ResponsiveContainer,
   Tooltip, XAxis, YAxis,
@@ -77,29 +78,43 @@ export interface GuideLine {
   color?: string
 }
 
-export function MetricChart({ rows, segments, series, height, percent = false, guides, digits = 3, hidden, onToggle }: {
+export function MetricChart({ rows, segments, series, height, percent = false, guides, digits = 3, defaultHidden, filterable = true }: {
   rows: MetricRow[]; segments: StageSegment[]; series: SeriesSpec[]
   height: number; percent?: boolean; guides?: GuideLine[]; digits?: number
-  // When onToggle is supplied the legend becomes a filter: click an entry to
-  // hide/show its line. `hidden` is the set of currently-hidden series keys.
-  hidden?: Set<string>; onToggle?: (key: string) => void
+  // The legend doubles as a click filter (on by default for every chart): click
+  // an entry to hide/show its line. `defaultHidden` seeds which series start
+  // hidden — e.g. the long tail of tiny action types — and the user's own clicks
+  // take over from there. Pass filterable={false} to fall back to a static legend.
+  defaultHidden?: string[]; filterable?: boolean
 }) {
   const { t } = useI18n()
+  // null until the user first clicks; then it is their explicit hidden-set, which
+  // overrides defaultHidden. Kept null-until-touched so a defaultHidden that only
+  // resolves once async data arrives (action tail) still applies on first paint.
+  const [userHidden, setUserHidden] = useState<Set<string> | null>(null)
+  const interactive = filterable && series.length > 1
+  const hidden = userHidden ?? new Set(defaultHidden ?? [])
+  const toggle = (key: string) => setUserHidden(prev => {
+    const next = new Set(prev ?? hidden)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    return next
+  })
   if (!rows.length) return <Empty text={t('chart.noMetrics')} />
-  const drawn = onToggle ? series.filter(spec => !hidden?.has(spec.key)) : series
+  const drawn = interactive ? series.filter(spec => !hidden.has(spec.key)) : series
   return <>
     {series.length > 1 && (
       <div className="legend-row">
         {series.map(spec => {
-          const off = hidden?.has(spec.key) ?? false
-          if (!onToggle) return <span key={spec.key}><i style={{ background: spec.color }} />{spec.name}</span>
+          if (!interactive) return <span key={spec.key}><i style={{ background: spec.color }} />{spec.name}</span>
+          const off = hidden.has(spec.key)
           return (
             <button
               key={spec.key}
               type="button"
               className={`legend-toggle${off ? ' off' : ''}`}
               aria-pressed={!off}
-              onClick={() => onToggle(spec.key)}
+              onClick={() => toggle(spec.key)}
             >
               <i style={{ background: spec.color }} />{spec.name}
             </button>
