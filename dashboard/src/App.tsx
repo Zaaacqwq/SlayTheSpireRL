@@ -32,6 +32,16 @@ const NAV: { tab: Tab; icon: typeof BarChart3 }[] = [
  * potion regression that hid for five versions was use_potion pinned here. */
 const CORE_ACTIONS = ['play_card', 'end_turn', 'use_potion', 'select_map_node', 'select_card_reward']
 
+/* Combat-only curriculum stages (normal_combat / mixed_combat / boss_combat) run a
+ * single isolated fight: there is no map, no card reward, no shop, and the combat
+ * loadout carries no potions, so use_potion / select_map_node / select_card_reward
+ * are *structurally* absent by design, not pinned by a bug. Only flag them once the
+ * run stages (act1+) can actually reach them — otherwise the whole combat warm-up
+ * (hours of a fresh run) trips a false potion-bug alarm. */
+export function coreActionsForStage(stage: string | undefined): string[] {
+  return String(stage ?? '').includes('combat') ? ['play_card', 'end_turn'] : CORE_ACTIONS
+}
+
 interface Alert { level: 'critical' | 'warn'; title: string; body?: string }
 
 /** Every tripwire the run history exposes, derived from the latest metric row so
@@ -66,7 +76,7 @@ function useTripwires(run: Run | undefined): Alert[] {
       alerts.push({ level: 'warn', title: t('alert.kl'), body: t('alert.klBody', { kl: num(kl, 4), limit: num(hardKl, 4) }) })
     }
     const unreachable = new Set([...(vis?.never_offered_actions ?? []), ...(vis?.never_chosen_actions ?? [])])
-    const coreZero = CORE_ACTIONS.filter(action => unreachable.has(action))
+    const coreZero = coreActionsForStage(latest.stage).filter(action => unreachable.has(action))
     if (coreZero.length) {
       alerts.push({ level: 'warn', title: t('alert.structuralZero'), body: t('alert.structuralZeroBody', { actions: coreZero.join(', ') }) })
     }

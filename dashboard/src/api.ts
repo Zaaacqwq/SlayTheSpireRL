@@ -1,4 +1,4 @@
-import type { Episode, LiveEvent, LiveSnapshot, MetricRow, ReplayStep, Run, TimelineItem } from './types'
+import type { Episode, LiveEvent, LiveSnapshot, MetricRow, ReplayStep, Run, TimelineItem, TrainingControlStatus } from './types'
 
 async function get<T>(path: string): Promise<T> {
   const response = await fetch(path)
@@ -9,8 +9,30 @@ async function get<T>(path: string): Promise<T> {
   return response.json()
 }
 
+async function post<T>(path: string): Promise<T> {
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-STS2-Dashboard': '1' },
+    body: '{}',
+  })
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}))
+    throw new Error(body.error || response.statusText)
+  }
+  return response.json()
+}
+
 export const fetchRuns = () =>
   get<{ items: Run[]; legacy_episode_count: number }>('/api/runs')
+
+export const fetchTrainingControl = (run: string) =>
+  get<TrainingControlStatus>(`/api/runs/${encodeURIComponent(run)}/training-control`)
+
+export const startTraining = (run: string) =>
+  post<TrainingControlStatus>(`/api/runs/${encodeURIComponent(run)}/training-control/start`)
+
+export const pauseTraining = (run: string) =>
+  post<TrainingControlStatus>(`/api/runs/${encodeURIComponent(run)}/training-control/pause`)
 
 export const fetchMetrics = (run: string) =>
   get<{ rows: MetricRow[] }>(`/api/runs/${encodeURIComponent(run)}/metrics`)

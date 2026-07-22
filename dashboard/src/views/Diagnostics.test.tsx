@@ -59,6 +59,43 @@ test('charts every action type the run reports, so a structural zero is visible'
   expect(screen.getByText('play_card')).toBeInTheDocument()
 })
 
+test('flags an action offered but never once chosen as a structural zero', async () => {
+  // the potion-bug signature: use_potion is offered but the policy never takes it
+  mockMetrics([
+    {
+      iteration: 0, stage: 'act1', win_return: 1, loss_return: -1, inverted: 0,
+      visibility: {
+        decisions: 100,
+        offered_actions: { play_card: 60, use_potion: 12 },
+        chosen_actions: { play_card: 55, use_potion: 0 },
+      },
+    },
+  ])
+  const { container } = view()
+  await screen.findByText('play_card')
+  const zero = container.querySelector('.reach-chip.zero')
+  expect(zero).not.toBeNull()
+  expect(zero).toHaveTextContent('use_potion')
+})
+
+test('splits the boss funnel per act once the run reports per-act depth', async () => {
+  // acts_12 conflated "reached the act-1 boss" with "won the whole stage"; the
+  // per-act keys give one reach/beat step per act
+  mockMetrics([
+    {
+      iteration: 0, stage: 'acts_12', win_return: 1, loss_return: -1, inverted: 0,
+      reached_act1_rate: 0.8, cleared_act1_rate: 0.6,
+      reached_act2_rate: 0.4, cleared_act2_rate: 0.2,
+    },
+  ])
+  view()
+  // Each act contributes a reach + beat curve to both the funnel steps and the
+  // trend legend, so a reach label appears more than once.
+  expect((await screen.findAllByText('走到 A1 boss')).length).toBeGreaterThan(0)
+  expect(screen.getAllByText('走到 A2 boss').length).toBeGreaterThan(0)
+  expect(screen.getAllByText('打过 A1').length).toBeGreaterThan(0)
+})
+
 test('hides the boss funnel on a combat stage, where it is undefined', async () => {
   // combat stages spawn the fight next to the boss; "reached the boss" is meaningless
   mockMetrics([

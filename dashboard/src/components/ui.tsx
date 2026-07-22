@@ -1,28 +1,38 @@
-import type { ReactNode } from 'react'
-import { CircleDot, Crown, Gem, Heart, Info, ShoppingBag, Skull, Sparkles, Swords, Trophy } from 'lucide-react'
+import { useEffect, useState, type ReactNode } from 'react'
+import {
+  AlertTriangle, CircleDot, Crown, Gem, Heart, Info, Moon, ShoppingBag, Skull,
+  Sparkles, Sun, Swords, Trophy,
+} from 'lucide-react'
 import { outcomeKnown, outcomeLabel, stageLabel, stageTint, won } from '../format'
 import { useI18n } from '../i18n'
 import type { Locale } from '../i18n'
 
-export function Panel({ icon, title, extra, tip, children }: {
-  icon?: ReactNode; title?: string; extra?: ReactNode; tip?: string; children: ReactNode
+export function Panel({ icon, title, extra, tip, tone, children }: {
+  icon?: ReactNode; title?: string; extra?: ReactNode; tip?: string
+  tone?: 'critical' | 'good'; children: ReactNode
 }) {
   return (
-    <section className="panel">
-      {title && <div className="panel-title">{icon}<h2>{title}</h2>{tip && <InfoTip text={tip} />}{extra && <small>{extra}</small>}</div>}
+    <section className={`panel ${tone ? `panel-${tone}` : ''}`}>
+      {title && (
+        <div className="panel-title">
+          {icon}<h2>{title}</h2>{tip && <InfoTip text={tip} />}
+          {extra && <small>{extra}</small>}
+        </div>
+      )}
       {children}
     </section>
   )
 }
 
-export function StatTile({ label, value, detail, tip, up = false, dim = false }: {
-  label: string; value: string; detail?: string; tip?: string; up?: boolean; dim?: boolean
+export function StatTile({ label, value, detail, tip, tone, dim = false }: {
+  label: string; value: string; detail?: string; tip?: string
+  tone?: 'good' | 'warn' | 'critical'; dim?: boolean
 }) {
   return (
     <div className={`tile ${dim ? 'dim' : ''}`}>
       <span>{label}{tip && <InfoTip text={tip} />}</span>
-      <strong>{value}</strong>
-      {detail && <small className={up ? 'up' : ''}>{detail}</small>}
+      <strong className="num">{value}</strong>
+      {detail && <small className={tone ? `tone-${tone}` : ''}>{detail}</small>}
     </div>
   )
 }
@@ -33,6 +43,69 @@ export function InfoTip({ text }: { text: string }) {
       <button type="button" aria-label="Info"><Info /></button>
       <span role="tooltip">{text}</span>
     </span>
+  )
+}
+
+/** Progress meter for the curriculum gate: fill vs a target threshold marker. */
+export function Meter({ value, target, tone = 'accent' }: {
+  value: number; target?: number; tone?: 'accent' | 'good' | 'warn'
+}) {
+  const pct = Math.max(0, Math.min(1, value)) * 100
+  return (
+    <div className="meter">
+      <span className={`meter-fill tone-${tone}`} style={{ width: `${pct}%` }} />
+      {target !== undefined && (
+        <span className="meter-target" style={{ left: `${Math.min(100, target * 100)}%` }} />
+      )}
+    </div>
+  )
+}
+
+/** A small status pill with a state-colored dot — used for training + live state. */
+export function StatusPill({ state, label, sub }: { state: string; label: string; sub?: string }) {
+  return (
+    <span className={`status-pill status-${state}`}>
+      <i />
+      <span><b>{label}</b>{sub && <small>{sub}</small>}</span>
+    </span>
+  )
+}
+
+export function AlertBanner({ level, title, body }: {
+  level: 'critical' | 'warn'; title: string; body?: string
+}) {
+  return (
+    <div className={`alert-banner alert-${level}`} role="alert">
+      <AlertTriangle />
+      <div><b>{title}</b>{body && <span>{body}</span>}</div>
+    </div>
+  )
+}
+
+const THEME_KEY = 'sts2-rl-theme'
+export type Theme = 'light' | 'dark'
+
+/** Explicit light/dark override stamped on <html data-theme>. When unset the OS
+ *  preference wins (theme.css handles both). */
+export function useTheme(): [Theme, () => void] {
+  const [theme, setTheme] = useState<Theme>(() => {
+    const stored = localStorage.getItem(THEME_KEY)
+    if (stored === 'light' || stored === 'dark') return stored
+    return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  })
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+    localStorage.setItem(THEME_KEY, theme)
+  }, [theme])
+  return [theme, () => setTheme(current => (current === 'dark' ? 'light' : 'dark'))]
+}
+
+export function ThemeToggle() {
+  const [theme, toggle] = useTheme()
+  return (
+    <button className="icon-btn" onClick={toggle} title={theme === 'dark' ? 'Light' : 'Dark'} aria-label="Toggle theme">
+      {theme === 'dark' ? <Sun /> : <Moon />}
+    </button>
   )
 }
 

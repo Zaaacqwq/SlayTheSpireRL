@@ -1,30 +1,119 @@
-/* Design tokens. Dark-only by choice: this is a local training console. */
+/* Design tokens — modern-minimal, light + dark.
+ *
+ * Base :root is the LIGHT theme. Dark is selected (its own steps validated against
+ * the dark surface, per the dataviz method — not an automatic flip). The theme
+ * follows the OS by default and is overridden when the toggle stamps
+ * data-theme="light|dark" on <html>.
+ *
+ * Token names are kept stable so every existing component keeps working; the
+ * categorical series are the validated reference palette (both modes pass
+ * scripts/validate_palette.js). */
+
 :root {
-  --page: #0d0d0d;
-  --surface: #1a1a19;
-  --surface-2: #222221;
-  --surface-3: #2a2a28;
-  --ink: #ffffff;
-  --ink-2: #c3c2b7;
-  --ink-3: #898781;
-  --grid: #2c2c2a;
-  --baseline: #383835;
-  --border: rgba(255, 255, 255, 0.1);
+  /* Surfaces & ink — light */
+  --page: #f7f7f5;
+  --surface: #ffffff;
+  --surface-2: #f3f3f0;
+  --surface-3: #e9e9e5;
+  --ink: #101010;
+  --ink-2: #52514e;
+  --ink-3: #8a8880;
+  --grid: #ececea;
+  --baseline: #d6d5ce;
+  --border: rgba(11, 11, 11, 0.09);
+  --line: rgba(11, 11, 11, 0.14);
+  --shadow: 0 1px 2px rgba(11, 11, 11, 0.05), 0 6px 20px rgba(11, 11, 11, 0.05);
+  --shadow-lift: 0 2px 6px rgba(11, 11, 11, 0.08), 0 14px 40px rgba(11, 11, 11, 0.10);
 
-  /* Categorical series, dark steps, fixed order (validated) */
-  --series-1: #3987e5; /* blue    · train win rate */
-  --series-2: #199e70; /* aqua    · dev win rate */
-  --series-3: #c98500; /* yellow  · floor */
-  --series-4: #9085e9; /* violet */
-  --series-5: #e66767; /* red */
+  /* Categorical series — light steps (validated: worst adjacent CVD ΔE 24.2) */
+  --series-1: #2a78d6; /* blue    · train win rate */
+  --series-2: #1baf7a; /* aqua    · dev win rate */
+  --series-3: #eda100; /* yellow  · floor / reached */
+  --series-4: #008300; /* green */
+  --series-5: #4a3aa7; /* violet */
+  --series-6: #e34948; /* red     · loss return */
+  --series-7: #e87ba4; /* magenta */
+  --series-8: #eb6834; /* orange */
 
-  /* Status — reserved, never used as series */
+  /* Status — reserved, never used as a series. Fixed across themes. */
   --good: #0ca30c;
   --warning: #fab219;
   --serious: #ec835a;
   --critical: #d03b3b;
 
-  --radius: 10px;
-  --radius-sm: 6px;
-  --font: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif;
+  /* Semantic aliases */
+  --accent: var(--series-1);
+  --positive: #0f8f0f;
+  --negative: var(--critical);
+
+  /* Chart chrome as CSS vars so SVG marks theme correctly */
+  --chart-surface: var(--surface);
+  --tooltip-bg: #ffffff;
+
+  --radius-lg: 16px;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --font: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --mono: "SF Mono", "Cascadia Mono", "JetBrains Mono", ui-monospace, "Consolas", monospace;
+}
+
+/* Dark steps chosen for the dark surface (#191918), validated as a set. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) { color-scheme: dark; }
+  :root:not([data-theme]) {
+    --page: #0f0f0e;
+    --surface: #191918;
+    --surface-2: #201f1e;
+    --surface-3: #2a2a27;
+    --ink: #ffffff;
+    --ink-2: #c9c8bf;
+    --ink-3: #8e8c85;
+    --grid: #292927;
+    --baseline: #3a3a37;
+    --border: rgba(255, 255, 255, 0.09);
+    --line: rgba(255, 255, 255, 0.14);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-lift: 0 2px 6px rgba(0, 0, 0, 0.45), 0 16px 40px rgba(0, 0, 0, 0.5);
+
+    --series-1: #3987e5;
+    --series-2: #199e70;
+    --series-3: #c98500;
+    --series-4: #2f9e4f;
+    --series-5: #9085e9;
+    --series-6: #e66767;
+    --series-7: #d55181;
+    --series-8: #d95926;
+
+    --positive: #0ca30c;
+    --tooltip-bg: #201f1e;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0f0f0e;
+  --surface: #191918;
+  --surface-2: #201f1e;
+  --surface-3: #2a2a27;
+  --ink: #ffffff;
+  --ink-2: #c9c8bf;
+  --ink-3: #8e8c85;
+  --grid: #292927;
+  --baseline: #3a3a37;
+  --border: rgba(255, 255, 255, 0.09);
+  --line: rgba(255, 255, 255, 0.14);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-lift: 0 2px 6px rgba(0, 0, 0, 0.45), 0 16px 40px rgba(0, 0, 0, 0.5);
+
+  --series-1: #3987e5;
+  --series-2: #199e70;
+  --series-3: #c98500;
+  --series-4: #2f9e4f;
+  --series-5: #9085e9;
+  --series-6: #e66767;
+  --series-7: #d55181;
+  --series-8: #d95926;
+
+  --positive: #0ca30c;
+  --tooltip-bg: #201f1e;
 }
