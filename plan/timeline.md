@@ -330,9 +330,101 @@ v7-clean 的 P5 act1-gate 计划（连续三 gate ≥30% 才进 full A0）已被
 
 #### Approach A — zhiyue 快模拟器作为训练后端 · 已搁置为训练策略，保留为依赖
 
-**2026-07-15 起。`plan/approach_a_zhiyue_sim_backend.md` 归档后删除；实测详情见保留的 [`zhiyue_phase0_results.md`](zhiyue_phase0_results.md)。**
+**2026-07-15 起。方案文档 `approach_a_zhiyue_sim_backend.md` 与结果文档 `zhiyue_phase0_results.md` 均已并入本条后删除（zhiyue sim 实验整体退役，见文末「退役」）。**
 
 - **动机**：v7 act1 ~72% 天花板的一个真实根因是**采样饥饿**——真 STS2 CLI 仅 ~70 步/秒（12 workers）。`zhiyue/sts2-rl-agent` 的纯 Python headless 模拟器单核 ~146 战斗/秒、3,658 步/秒，且有整轮 `run_env`（地图/商店/事件/奖励）。目标：把它接成一个**环境后端**，把每个实验从「几十小时」压到「几十分钟」，保留我方全部领先（entity 模型 / 指针动作空间 / curriculum / reward）。
 - **实施**：不 commit 它的源码（无正式 license，research-only）→ vendored 到 `vendor/sts2-rl-agent`，pin `1b7e7ce` + 本地 parity 修正（见 `vendor/sts2-rl-agent/UPSTREAM.md`，gitignored）。复用 `sim/combat-backend` 分支已有、且带真游戏 parity 测试的 `SimCombatBackend` 包 zhiyue `CombatState`，新增 `ZhiyueRunBackend` 包 `RunManager` 提供整轮能力；`--combat-backend {real,sim,zhiyue}` + `--vocab-source`。
 - **结果**：**Phase 0 = GO**（端到端 env ~54x 吞吐、无保真告警、能学）；**Phase 1 = 完成**（整轮后端）。**Phase 2**：native vocab、on-policy boss replay、per-minibatch KL guard、96-episode Act 1 基线均落地，但 100-seed dev 最高仅 **18%，未突破 72%**——瓶颈已从采样/协议**收敛到 boss 信用分配**（不再是吞吐）。
-- **决策**：**zhiyue sim 作为训练策略搁置，真引擎（`--combat-backend real`）仍是正式训练主线**；但 `rl/src/sts2rl/sim` 作为**运行时依赖保留**（`m2_train` 即使 real 后端也 import 它）。后续多幕训练（`acts_12`、`from1499`、`hp-shaping`）均在真引擎上进行。
+- **决策**：**zhiyue sim 作为训练策略搁置，真引擎仍是正式训练主线**。后续多幕训练（`acts_12`、`from1499`、`hp-shaping`）均在真引擎上进行。
+- **补记的 Phase 2 实测**：native vocab 发现、on-policy boss replay、per-minibatch KL guard、96-episode Act 1 基线;100-seed dev 峰值 18%;`SimCombatBackend`(战斗)+`ZhiyueRunBackend`(整轮)有真游戏 parity 抽查(vendored `1b7e7ce` + 本地数值修正)。
+
+#### zhiyue sim 实验 · 整体退役（2026-07-23）
+
+既然真引擎已是确定主线、多幕训练全在其上进行，zhiyue sim 这套休眠基础设施整体退役,`m2_train.py` 回归**纯 real 引擎**:
+
+- **删除**:`rl/src/sts2rl/sim/`(SimCombatBackend / ZhiyueRunBackend / discover_sim_vocab)、`rl/tests/sim/`(parity harness)、`requirements-sim.txt`、`scripts/setup_sim.ps1`、`tools/transfer_eval.py`、本地 `vendor/`(gitignored)与 `.gitignore` 的 `vendor/` 行、`plan/{approach_a_zhiyue_sim_backend,zhiyue_phase0_results}.md`(内容已并入上方 Approach A 条）。
+- **`m2_train.py` 改动**:去掉 `--combat-backend / --eval-backend / --vocab-source / --sim-vocab-rollouts` 四个参数、`make_combat_backend` 工厂、sim vocab 发现与 sim stage 守卫;后端固定为 `make_client()`,vocab 固定 `fixed`(persisted/checked-in)。real 训练路径本就不实例化 sim,行为不变。
+- 退役在正式训练(`m2_v7_acts12_hpshape`)暂停期间完成,验证 py_compile / import / 全测试通过后恢复。
+
+---
+
+#### v7-clean → Act 1 晋级 + live bridge：让模型在真实游戏里打（2026-07-15→16）
+
+**改的是协议健壮性 + 一个全新的「观看」通道** · ckpt_00409 在真游戏里自建牌组走到 Act 1 boss
+
+- **NoopGuard 熔断器**（`735e4f1`）：某些引擎动作内部失败、异常被吞、返回**逐字节相同**的决策状态——典型是满槽 `buy_potion`（`RunSimulator.cs:1445`）。贪心策略会对同一「死动作」反复重选直到步数截断：iter 289+ 记到 25 次截断，dev seed 325 被锁在商店到 step 600，**同时污染训练样本和贪心评估结果**。`NoopGuard` 按决策状态记住哪些动作 inert（前后 hash 相同）并不再提供，把策略推到能推进的动作上（商店永远还有 `leave_room`）；训练与审计 rollout 共用。ckpt_00409 上验证：熔断触发 1 seed、0 步数锁死、act1 通关 77.5% 不受影响。
+- **`tools/live_play.py` — 「观看模型打真游戏」里程碑**（`b396f1f` → `92094a8`）：一条 Python 桥，让训好的 checkpoint 通过 mod 的 HTTP API 在**真实（modded）Slay the Spire 2** 里打。spike 证实两个序列化器只有外观差异（mod 发裸实体名，headless 发 `TYPE.NAME`），所以桥只做一件定制事——把 live JSON 翻成 headless `raw` dict——**下游整套 RL 栈原封不动复用**（`legal_actions` / `normalize_state` / policy / NoopGuard）。先做到 combat-only，再进化为**整幕驱动**：map/combat/elite/boss/card_reward/event/rest/shop/hand_select/card_select/treasure 每种决策各自 live 验证。**ckpt_00409 自主打完一整个 Act 1、在自己搭的牌组上走到 Act 1 boss。**
+- 附带：`4eef729` 上游加只读 `get_draw_pile`（sim differential harness 需要锁定开局手牌/中途抽牌），并把此前未推的 `e1a0688` 推到 fork remote，补上「pin 的 commit 不在 remote」的坑。
+
+#### act2/3 硬化 · full_a0 · acts_12 多幕课程（2026-07-16→17）
+
+**改的是引擎（act2/3）+ 课程 + 多幕奖励** · 从 act1-only 迈向整轮
+
+- **act2/3 headless 硬化**（`b224e31`）：`Vector2I.One` stub、Amalgamator/CrystalSphere 的 UI 代码 event auto-skip、引擎 fault 带 stack trace。full_a0 此前 ~12% 到达 act2 的 episode 崩溃；ckpt_00429 全三幕探针 engine faults **7 → 0**。
+- **act1 gate-audit 工具**（`a255a3e`）：在进 full_a0 前挑最稳的 checkpoint。450 个 held-out dev seed 上 ckpt_00339 / 409 / 429 = **65.3% / 72.2% / 73.8%** 通关，0 error/0 截断。
+- **full_a0 四道拦路**（`209cbbb`，全修）：① 词表 2451 → **2605**（act2/3 新实体；`m2_build_vocab` 现从 events localization 静态收割所有 `EVENT_VAR.*`）；② **容忍性可见性契约**（部分身份运行时才合成——rolled-relic 的事件选项、召唤生物 `MONSTER.BATTLE_FRIEND_V2`——容忍稀疏运行时尾巴，只在洪泛时 abort）；③ 候选爆炸（`select_cards` 的 C(30,4)=27k 候选 → 34 GiB OOM，加 `SELECT_CARDS_CANDIDATE_BUDGET` 封顶）；④ dashboard 不再把被容忍的 unknown 尾巴误报为契约违规（`9fdbbb5`）。满槽 `buy_potion` 也在引擎侧根治（`44dd1fe`：满槽时不再提供该动作，与 NoopGuard 互补）。
+- **acts_12（act1+2）课程阶段**（`2270d17` / `e02362b`）：act1 通关 ~74% 时直接跳整三幕给的是**平坦 0% 胜率目标**（act3 到达太稀、稀释 act2 信号）。在 act1 与 full_a0 之间插入 `max_act=2` 的 `acts_12`：episode 到 act2 boss 结束，act2 拿到密集信号、迭代更短、act1 继续 co-train。首迭代 act1+2 胜率 **7.3%**（vs 整轮 0%）。
+- **多幕坍塌 → milestone 奖励**（`b862d8f` → `02a1617`）：acts_12 上策略坍塌（reached-boss **87%→24%**、avg_floor **16→10**、entropy **上升** 0.79→1.04 漂向随机）。根因：net-zero 楼层势能下「清 act1 boss」在多幕阶段挣不到可区分奖励——「到 floor 17」和「死在 floor 3」都记 −1，只有罕见的 act1+2 胜（~2%）付 +1。加 **`act_clear_bonus`**（每次幕序推进=**打赢**一个 act boss 直接给奖，不能重学「走到 boss 去死」的老 exploit）：0.4 只减缓坍塌 → 提到 **1.0**（匹配 act1 阶段清 act1 付的 +1）。同时 `entropy_coef` **0.01 → 0.003**（`0ae4fea`：稀疏多幕信号下 0.01 太强，acts_12 贪心峰值 18% @ iter 469 后又飘回 2–10%）。
+- **累积楼层修复**（`22a7e35`）：引擎按幕编号（每幕 floor 从 1 重启、boss ~17），`final_floor` 封顶 ~17，dashboard 对死在 act1 boss 和清了 act2 都显示 17，**act2/3 进度不可见**。`EpisodeRecord` 改记 `final_act` + **累积** `final_floor`（act1 1-17 / act2 18-34 / act3 35+）；shaping 仍用原始 per-act floor。
+- **这一轮的 run = `m2_v7_acts12`（iters 430–651）**，后被判定为**欠训 + 过调**的失败（详见下方 07-21 重启条）——不是奖励错。
+
+#### v7 act1「72% 天花板」调参扫描 + v8 大模型（2026-07-18）— 诊断后被证伪
+
+**改的是奖励模型 + 模型容量** · 得出「72% 是容量墙」的结论 — **两天后被推翻**
+
+- 通宵调参扫描（`m2_v7_act1_dense_overfit`，从 v7 act1 线续，hidden 256/4/8，~4.2M 参数）得出：**act1 dev 通关率封在 ~0.68–0.72 均值（峰值 0.80）**，超参/奖励/课程都推不到用户的 85% 目标。试过：plain reward、dense HP-shaping（`hp_shaping_coef` 0.5 与 1.0）、boss_mix 0.3、entropy pulse——**只有 boss_mix 有效**（dev 均值 0.65→0.71、boss_conv 首破 0.90；机制：`boss_mix>0` 才把 boss episode 切进 PPO batch，gamma=0.999 会稀释整轮尾部 boss 战的信用）；dense HP 抬 conv 但 reached_boss 补偿性下降 → 净 dev 平；entropy pulse 连 entropy 都没抬起来。
+- **当时的诊断（后证伪）**：签名 = 收敛在容量上（`policy_loss≈0`、`explained_variance≈0.95`、entropy 稳 ~0.67、KL 在 2–3/4 epoch early-stop、~200 迭代 6 配置全平）。**用户决策：放大模型。**
+- **`m2_v8_h512`**（`v8-h512-bigmodel-run`）：从零重训，**hidden 512 / 6 layers / 8 heads（~20M 参数，5x）**，验收判据「若 act1 dev 破 72% 则容量即墙；若也封 72% 则容量不是墙」。**不稳定发现**：512 模型 20 迭代就从 combat 冲到 act1（组合阶段太易、跳过 boss_combat）→ **combat 地基太薄**；在 act1 里脆弱——entropy_coef 0.01 让 entropy 单调爬 0.88→1.0 后坍塌，0.003 不发散但 dev 从 0.28 漂到 0.10。开放假设：薄地基（5x 模型晋级太快）才是真瓶颈。
+
+#### 🔴 大翻案：72% 不是天花板，是欠训——clean_init0 续训命中 85%（2026-07-19→21）
+
+**没改代码，只是不去动它** · dev 0.68 → **0.848 → 0.896**，本项目 act1 最强模型
+
+> **上面 07-18 的「72% 容量天花板」诊断是错的**，正如 v6 里「boss 墙从来不存在」。这条把它推翻。
+
+- 直接 resume `m2_v7_clean_init0`（真引擎 act1，hidden 256/4，仍是仓库里单个最强模型）**按它原始配方**（entropy 0.01、无 act_clear_bonus）不受打扰再训 ~200 迭代：dev win **0.68 → 0.81 均值 / 0.90 峰值**，reached_boss 0.88→0.97，boss_conv 0.76→0.84。**机制**：iter 489 的 `policy_loss≈0 + entropy 0.70` *看着*收敛，其实是**慢补丁不是天花板**——entropy 继续退火 0.70→0.50，policy_loss 回到真实 −0.04..−0.06，KL early-stop 从 2 放松到 4 epoch，胜率随之涨。继续跑满预算：iters 700–999 dev 稳 ~0.85（**last-10 均值 0.848，峰值 0.90**），到 1500 iter 收官 **last-10 dev 0.896、峰值 0.96 @ ckpt_01469、boss_conv ~0.94**。归档精简快照到 `rl/runs/archive/m2_v7_clean_init0_1500iter_2026-07-21/`（~199M，含 resume.pt + ckpt_01469/1489/1499 + config/history/vocab/loadouts，不含 episodes）。
+- **翻案的教训（本文件核心主题再现一次）**：`policy_loss≈0` 这个签名对「真到容量」和「暂时慢补丁」**读起来一模一样**。07-18 的扫描叫早了；而**之后每一个扰动实验（dense HP / v8 大模型 / 多幕 / sim 后端）都把这条 run 从高产的退火轨道上撞下来，然后被误读成「又一次确认了那堵墙」**。规则：**一条还有 entropy 可退火的 PPO plateau，别去调它——让它煮。**（配套修复：把 dashboard「continue training」按钮接上——`feat/zhiyue-sim-backend` 上 `rl_dashboard.py` 原是只读 GET 版，从 `v8-training-wip` port 了 `train_control.py` 控制后端；抬 `config.json` 的 `iterations`（1000→1500）即可从按钮延长已 finish 的 run。）
+
+#### acts_12 从 1499 重启：真正进入多幕（2026-07-21）
+
+**改的是 CLI（永久修 dataclass-default 漂移）+ 启动方式** · 真正把 baseline 拉到 act2
+
+- clean_init0 跑满 1500 后，续进多幕为 **`m2_v7_acts12_from1499`**（resume `resume.pt` @ step 1499）。奖励 = `terminal ±1 + 0.2×per-act 楼层势能（terminal Φ=0）+ act_clear_bonus=1.0`，`entropy_coef=0.003`，其余同 clean_init0（lr 5e-5、hidden 256/4/8、mb 256、96 ep/iter、boss_mix 0.15、on-policy boss replay）。
+- **为什么*旧* acts_12（`m2_v7_acts12`，iters 430–651）失败——不是奖励**：它在 iter 430、act1 只有 ~0.74 时就分叉（clean_init0 后来到 0.88+），只跑了 ~220 迭代（act1 从类似 plateau 需要 ~600），且中途被重调 3 次（act_clear_bonus 0.4→1.0、entropy 0.01→0.003、累积楼层遥测）——每次重启都把它撞下退火。**和被证伪的 act1 天花板同一个「欠训 + 过调」陷阱**：policy_loss≈0、entropy 反向漂 **上** 0.73→0.93（unlearn act1）、avg_floor 才刚爬 14→19。**奖励本身是对的。**
+- **永久代码改动**（修一再咬人的 dataclass-default 漂移）：给 `tools/m2_train.py` 加 `--entropy-coef` / `--act-clear-bonus` CLI flag（None → 保持 PPOConfig 默认，单幕 act1 run 不受影响；传了就写进 config.json 可复现）。`act_clear_bonus` 也加进 `train_control.py` 的 `VALUE_OPTIONS`。**不再靠编辑 PPOConfig dataclass 默认值来切 act1↔多幕。**
+- **首 2 迭代（健康）**：train_win ~0.10，reached act2 boss ~0.95，**act2 boss_conv ~0.11（墙晚了一幕重现）**，median_floor 23 / max 34–35（真在 act2、碰到 act3），reward_health 赢 +2.1 / 输 −0.3（未反转）。**WATCH**：entropy 0.586→0.681，若继续爬过 ~0.9 就是坍塌重演。下一杠杆：给 **act2 boss** 专门的 on-policy replay / bridge（目前 boss_combat 阶段只练 act1 boss）。
+
+#### 引擎 bug：KAISER_CRAB_BOSS 免费通关（2026-07-21，已修）
+
+**引擎侧** · 灌水 acts_12 的 `cleared_act2` / dev 胜率
+
+- 用户在 dev 局 `01589_m2-a0-ironclad-36` 发现：选 act2 boss 房（HP 63/96）→ 下一步直接 card_reward（HP 不变、零战斗步）。隔离证实：**`KAISER_CRAB_BOSS` 遭遇在 headless 里刷 0 个怪** → 引擎当战斗已结束、发 boss 卡奖励、推进幕数 = **免打免掉血的白赢**。全 12 boss 扫描只有它坏；act2 有 3 个 boss，~1/3 的局 boss=KAISER_CRAB → 走到即免费通关，**教策略「走到 act2 boss 有时=白赢」**。
+- **根因**（反编译定位）：Kaiser Crab = `Crusher`+`Rocket` 两怪，两者 `AfterAddedToRoom()` 访问的 `NKaiserCrabBossBackground Background` getter 在 headless（无视觉节点）必抛 `InvalidOperationException`，异常被 `TaskHelper.LogTaskExceptions` 吞掉 → 怪没加进战斗。**修复（引擎 2 处）**：`GodotStubs/UI.cs` 补 `CanvasItem.SetVisible/IsVisible`；`RunSimulator.cs` 加 `PatchKaiserCrab()` Harmony 补丁（反射扫描 → 前缀 Background getter 返回 dummy、no-op 所有 `Play*` 动画）。纯视觉、零 gameplay 改动。验证：KAISER_CRAB 现刷 CRUSHER(209)+ROCKET(199)、68 步真交火；12/12 boss 刷怪；3/3 完整 Ironclad 通关；rl pytest 133 passed。**修后 acts_12 `cleared_act2` 会掉到诚实值**（信号变干净不是退步）。详见 `known_gaps_backlog.md #0`。引擎 submodule 改动尚未 commit/pin。
+
+#### dashboard 整合 + per-act 漏斗 + 满槽药水盲区确认（2026-07-21→22）
+
+- **per-act boss 漏斗**（纯后端）：把 v8 的 `depth_profile(records, acts=...)` port 进本分支 `telemetry.py`（键 `reached_act{n}_rate` / `cleared_act{n}_rate`），`m2_train` 两处调用点传 `acts=stage.max_act`。部署的 v8 前端 bundle 一见到 per-act 键就点亮分幕漏斗（iter 1544 验证：reached_act1 0.91 / cleared_act1 0.60 / reached_act2 0.14 / cleared_act2 0.086）。
+- **前端分支分裂解决**（`3fa8efa` / `744752b`）：能编译的 v8 `dashboard/src`（served dist 的来源）被搬到 `feat/zhiyue-sim-backend` 并提交，坏的 feat src 删除；**现在直接在 feat 上改前端**、`npm run build`、dist 原地服务（dist 仍 gitignored）。同 commit 两个 UX：boss 漏斗加 `reached_act{n}` 走到线；action-mix 图例变成点击筛选（14 种动作全可 toggle）。
+- **`WinError 10053` 刷屏修复**：浏览器关掉轮询 tab 打断 socket → 写失败 → except 里又对死 socket 写错误再次抛 → 每个断连一整条 traceback。加 `_CLIENT_GONE` 元组吞掉并置 `close_connection`。**需重启 dashboard 生效**（用户手动跑 `rl_dashboard.py`）。
+- **满槽药水盲区确认**（`known_gaps_backlog.md #1`）：30 场对照实测——战后金币/遗物/药水由引擎**自动领取（非决策）**，只有卡牌奖励是 agent 决策；药水槽满（3 瓶）时掉的新药水被**静默丢弃**，belt 从不涨到 4、**从不弹「换哪瓶」决策**（`RunSimulator.cs:2489` `DetectPostCombatState`）。是真实游戏 parity 偏差 + 药水换牌学习上限，与旧 `use_potion`-never-offered 同族；训练/评估同引擎内部一致，暂缓修、优先级低。
+
+#### HP shaping 奖励实验（当前 `feat/hp-shaping`，2026-07-23）
+
+**改的是 P3（奖励）· 在多幕 baseline 上做隔离 A/B** · 针对 act2 消耗战漏斗
+
+- **健壮性先修**：`181652a` — 不干净关机留下的半写 `resume.pt`（zip 中央目录未落盘）让每次重启 `torch.load` 失败、`latest_checkpoint` 总重选它（mtime 最新）→ watchdog 崩溃循环、dashboard「continue」看着像死了。修：`latest_checkpoint` 新→旧遍历、跳过 zipfile 探针失败的候选；checkpoint `os.replace` 前 `fsync` 临时文件。
+- **sim 后端提交为运行时依赖**（`db5e3c5`）：`rl/src/sts2rl/sim` 的 `SimCombatBackend` / `ZhiyueRunBackend` + native vocab 发现 + real-vs-sim parity harness 进仓（vendor 本体仍 gitignored）。**作为训练策略已在 Phase 0 搁置**，real 后端仍是 live 主线，但 `m2_train` 即使 real 也 import 它。多幕训练层（per-act 漏斗 / backend 接线 / dashboard 控制）落在 `3865204`，**保持成一个干净的 bug-fixed baseline 供 A/B**，HP-shaping 单独分层在 `feat/hp-shaping`。
+- **potential-based HP shaping**（`b27d80e`，`--hp-shaping-coef`，默认 0）：`Φ(s)=coef·hp/max_hp`，`γ·Φ(s')−Φ(s)`，**terminal 强制 Φ=0**——与楼层 shaping 同款 policy-invariant 构造，把「碎步掉血」的信用变密而**不改最优解**（不会诱发平坦掉血惩罚会招来的「走到 boss 去死」）。**目标 = acts_12 消耗战漏斗：一半清了 act1 的局死在跨 act2 的路上，进入致命战时中位 HP 仅 41%**——一个稀疏 −1 在 γ=0.999 折扣数百步后几乎够不到的长程信号。test_ppo 验证默认关 + 折扣贡献 telescopes 到 `−coef·Φ(s0)`（路径无关）。
+- **凹势能 + smith/remove 微推**（`dcaba74`）：修 acts_12 动作分布里两个**结构性零**坍塌。① HP 势能改**凹/饱和** `g(x)=1−(1−x)²`（原线性 `hp/max` 给 80%→100% 的浪费性休息治疗付平坦 +coef·0.2，会奖励并固化「永远 HEAL」——**~4500 次休息决策 100% HEAL、0 SMITH，中位 HP 80%**；凹性让低血回复付得陡、满血 topping off 几乎不付，健康时 SMITH 才有竞争力，受伤时消耗信号仍锐利）。② `--smith-bonus` / `--remove-bonus`：对休息点选 SMITH、商店选 remove_card（**offered 241× / taken 0×**）给小的直接（非势能）奖励，与凹势能叠加（受伤仍 HEAL 胜、健康 SMITH 胜）；remove 是无差别的（商店态看不到牌组、无法只针对起手牌），两者都保持小（~0.05）、默认关。
+
+---
+
+## 教训累加（07-18→21，与文首「返工分布」同一主题）
+
+**「72% act1 天花板」是本项目第二个「自洽但错误」的故事，机制和 v6 的「boss 墙」如出一辙。** v6 那次是**一条欠训、被抢 GPU 的 run** 讲出了一个「策略在退化」的连贯假象；这次是**一条已进入慢补丁 plateau 的 run**（`policy_loss≈0`）被读成「到容量了」，然后接连三个方向（v8 大模型、zhiyue sim、多幕 acts_12）各自把它从退火轨道撞下来、各自「再次确认」了那堵不存在的墙。真相是：**什么都不改、让 clean_init0 按原配方多煮 200 迭代，就从 0.68 走到了 0.85+，跑满 1500 到 0.896。**
+
+**给未来的两条规则（追加）：**
+1. **`policy_loss≈0` 不能区分「到容量」和「暂时慢补丁」——只要 entropy 还在退火，就别下「到天花板」的结论，更别据此调参或换方向。** 让它跑，看 entropy 是否继续降、KL early-stop 是否从 2 放松到 4 epoch。
+2. **每一个「实验」都会把一条正在高产退火的 run 撞下轨道；如果你在被撞下的数据上读趋势，它会给你一个和上一次实验方向一致的、自信的、错误的确认。** 想验容量/奖励假设，先复制出一条**不动的对照 run**，别在主线上原地扰动。
+
+（v1–v5 打在 P2、真 bug 在 P3；v6「boss 墙不存在」；07-18「72% 容量墙不存在」——三次都是**把一个未经证伪的诊断当成已验证的事实**。）

@@ -51,13 +51,24 @@ def _loadable(path: Path) -> bool:
 
 
 def latest_checkpoint(run_dir: Path) -> Path | None:
-    candidates = list(run_dir.glob("ckpt_*.pt"))
+    # Milestones are zero-padded (ckpt_00079.pt), so a plain sort is numerical;
+    # highest number first. Prefer a per-iteration resume.pt when it is at least
+    # as new as the newest milestone (the rolling recovery point is >= the last
+    # 10-iteration milestone) — the ``>=`` keeps the choice deterministic even
+    # when the two share an mtime tick.
+    milestones = sorted(run_dir.glob("ckpt_*.pt"), reverse=True)
     resume = run_dir / "resume.pt"
-    if resume.exists():
-        candidates.append(resume)
-    # Newest first, so a healthy rolling resume.pt still wins over milestones;
-    # skip any corrupt tail so one bad save cannot permanently stall the run.
-    for path in sorted(candidates, key=lambda p: p.stat().st_mtime_ns, reverse=True):
+    newest_milestone = milestones[0] if milestones else None
+    prefer_resume = resume.exists() and (
+        newest_milestone is None
+        or resume.stat().st_mtime_ns >= newest_milestone.stat().st_mtime_ns
+    )
+    # Walk candidates in preference order and return the first that torch can
+    # actually load, so one corrupt tail cannot permanently stall the run.
+    ordered = ([resume] if prefer_resume else []) + milestones
+    if resume.exists() and not prefer_resume:
+        ordered.append(resume)
+    for path in ordered:
         if _loadable(path):
             return path
         print(json.dumps({"watchdog": "skipping unreadable checkpoint", "path": path.name}),

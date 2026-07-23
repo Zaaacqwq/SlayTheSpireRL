@@ -39,7 +39,6 @@ from sts2rl.live import LiveEventWriter
 from sts2rl.model import EntityRecurrentPolicy
 from sts2rl.ppo import PPOConfig, finalize_episode, ppo_update_epoch, run_episode
 from sts2rl.seeds import split_seed
-from sts2rl.sim import SimCombatBackend, ZhiyueRunBackend, discover_sim_vocab
 from sts2rl.telemetry import action_mix, depth_profile, reward_health
 from sts2rl.visibility import visibility_audit
 
@@ -126,18 +125,6 @@ def make_client() -> EngineClient:
         timeout=float(os.environ.get("STS2_TRAIN_TIMEOUT", "10")),
         env={"STS2_GAME_DIR": os.environ["STS2_GAME_DIR"]},
     )
-
-
-def make_combat_backend(kind: str):
-    """One combat execution backend: real engine subprocess, or the validated
-    in-process zhiyue simulator. Both expose the EngineClient combat surface
-    (``reset_combat`` / ``step`` / ``list_models`` / ``close`` / context
-    manager) that ``run_episode`` drives for combat stages."""
-    if kind == "zhiyue":
-        # Dual-mode: combat stages via the inner SimCombatBackend, run stages
-        # (act1/full_a0) via the wrapped RunManager.
-        return ZhiyueRunBackend()
-    return SimCombatBackend() if kind == "sim" else make_client()
 
 
 def train_seed_stream(offset: int = 0):
@@ -301,8 +288,7 @@ def main() -> int:
     parser.add_argument("--on-policy-boss-replay", action=argparse.BooleanOptionalAction,
                         default=None,
                         help="build boss replay loadouts only from this run's own "
-                             "first-round boss states; defaults on for zhiyue and off "
-                             "for the real backend")
+                             "first-round boss states (default off)")
     parser.add_argument("--boss-replay-min-loadouts", type=int, default=8,
                         help="minimum on-policy snapshots before boss replay activates")
     parser.add_argument("--boss-replay-buffer-size", type=int, default=256,
@@ -312,20 +298,9 @@ def main() -> int:
                              "only the region runs actually visit is trained on")
     parser.add_argument("--allow-visibility-violations", action="store_true",
                         help="diagnostic escape hatch; production training must leave this off")
-    parser.add_argument("--combat-backend", choices=("real", "sim", "zhiyue"), default="real",
-                        help="execution backend. 'sim' is combat-only; 'zhiyue' also "
-                             "serves act1/full-run stages through RunManager")
-    parser.add_argument("--eval-backend", choices=("same", "real"), default="same",
-                        help="backend for dev evaluations; 'real' scores on the ground-truth "
-                             "engine even while sampling from the simulator.")
-    parser.add_argument("--vocab-source", choices=("auto", "fixed", "sim"), default="auto",
-                        help="entity vocabulary source. auto uses deterministic sim discovery "
-                             "for sim/zhiyue and the checked-in fixed vocab for real")
-    parser.add_argument("--sim-vocab-rollouts", type=int, default=16,
-                        help="high-HP Act 1 discovery runs used to append simulator-native ids")
     args = parser.parse_args()
     if args.on_policy_boss_replay is None:
-        args.on_policy_boss_replay = args.combat_backend == "zhiyue"
+        args.on_policy_boss_replay = False
     if not 0.0 <= args.boss_mix < 1.0:
         raise SystemExit("--boss-mix must be in [0, 1)")
     if args.boss_replay_min_loadouts < 1:
@@ -334,52 +309,20 @@ def main() -> int:
         raise SystemExit(
             "--boss-replay-buffer-size must be >= --boss-replay-min-loadouts"
         )
-    if args.sim_vocab_rollouts < 0:
-        raise SystemExit("--sim-vocab-rollouts must be non-negative")
-    if (args.combat_backend == "zhiyue" and not args.on_policy_boss_replay
-            and args.boss_mix > 0):
-        raise SystemExit(
-            "zhiyue boss replay requires --on-policy-boss-replay; otherwise set --boss-mix 0"
-        )
 
-    # The real engine (game data + built DLL) is only needed when a real backend
-    # is actually used; sim/zhiyue-only training runs on machines without the game.
-    real_needed = args.combat_backend == "real" or args.eval_backend == "real"
-    if real_needed and not os.environ.get("STS2_GAME_DIR"):
+    # The real engine (game data + built DLL) is always required.
+    if not os.environ.get("STS2_GAME_DIR"):
         raise SystemExit("STS2_GAME_DIR required")
-    if real_needed and not DLL.exists():
+    if not DLL.exists():
         raise SystemExit(f"build first; missing {DLL}")
 
     run_dir = args.runs_root / args.run_name
     run_dir.mkdir(parents=True, exist_ok=True)
-    resolved_vocab_source = (
-        "sim" if args.vocab_source == "auto"
-        and args.combat_backend in ("sim", "zhiyue")
-        else "fixed" if args.vocab_source == "auto" else args.vocab_source
-    )
+    resolved_vocab_source = "fixed"
     run_vocab_path = run_dir / "entity_vocab.json"
     if run_vocab_path.exists():
         vocab = EntityVocab.load(run_vocab_path)
-        if resolved_vocab_source == "sim":
-            vocab, vocab_report = discover_sim_vocab(
-                vocab,
-                run_rollouts=args.sim_vocab_rollouts,
-                seed=args.init_seed,
-            )
-            vocab_report = {
-                **vocab_report, "source": "sim_refresh",
-                "path": str(run_vocab_path),
-            }
-            vocab.save(run_vocab_path)
-        else:
-            vocab_report = {"source": "persisted", "path": str(run_vocab_path)}
-    elif resolved_vocab_source == "sim":
-        vocab, vocab_report = discover_sim_vocab(
-            EntityVocab.load(VOCAB_PATH),
-            run_rollouts=args.sim_vocab_rollouts,
-            seed=args.init_seed,
-        )
-        vocab.save(run_vocab_path)
+        vocab_report = {"source": "persisted", "path": str(run_vocab_path)}
     else:
         vocab = EntityVocab.load(VOCAB_PATH)
         vocab.save(run_vocab_path)
@@ -440,16 +383,9 @@ def main() -> int:
         "dev_seed_hash": split["development_seed_hash"],
     }, indent=2, default=str) + "\n", encoding="utf-8")
 
-    if args.combat_backend in ("sim", "zhiyue"):
-        # The simulator serves its own act1 catalog, so no real engine is needed.
-        # It exposes a single act1 region, so there is no act variant to detect.
-        with SimCombatBackend() as probe:
-            catalog = probe.list_models("encounter")
-        act_variant = None
-    else:
-        with make_client() as probe:
-            catalog = probe.list_models("encounter")
-            act_variant = None if args.all_act_regions else detect_act_variant(probe, catalog)
+    with make_client() as probe:
+        catalog = probe.list_models("encounter")
+        act_variant = None if args.all_act_regions else detect_act_variant(probe, catalog)
     on_policy_buffer_path = run_dir / "on_policy_boss_loadouts.json"
     on_policy_boss_loadouts: list[Loadout] = []
     if args.on_policy_boss_replay and on_policy_buffer_path.exists():
@@ -477,8 +413,6 @@ def main() -> int:
     ))
     print(json.dumps({
         "act_variant": act_variant,
-        "combat_backend": args.combat_backend,
-        "eval_backend": args.eval_backend,
         "encounters": {s.name: len(s.encounters) for s in stages if s.is_combat},
         "boss_mix": args.boss_mix,
         "boss_replay_source": (
@@ -486,13 +420,8 @@ def main() -> int:
         ),
         "on_policy_boss_loadouts": len(on_policy_boss_loadouts),
     }))
-    clients = [make_combat_backend(args.combat_backend) for _ in range(args.workers)]
-    # Evaluate on the ground-truth engine when asked, even while sampling from the
-    # simulator; otherwise dev evals reuse the training backend.
-    if args.eval_backend == "real" and args.combat_backend != "real":
-        eval_clients = [make_client() for _ in range(args.workers)]
-    else:
-        eval_clients = clients
+    clients = [make_client() for _ in range(args.workers)]
+    eval_clients = clients
     stage_index = 0
     iteration_start = 0
     seed_cursor = 0
@@ -519,21 +448,6 @@ def main() -> int:
     max_stage_index = (
         [s.name for s in stages].index(args.max_stage) if args.max_stage else len(stages) - 1
     )
-    if args.combat_backend == "sim":
-        # SimCombatBackend is combat-only: run stages (act1/full_a0) reach the
-        # engine through client.reset(RunConfig), which it does not implement.
-        # (The 'zhiyue' backend wraps RunManager and does serve run stages.)
-        # Refuse to start on a run stage and never let advancement cross into one.
-        combat_indices = [i for i, s in enumerate(stages) if s.is_combat]
-        last_combat_index = max(combat_indices)
-        if not stages[stage_index].is_combat:
-            raise SystemExit(
-                f"--combat-backend sim cannot run non-combat stage "
-                f"{stages[stage_index].name!r}; pick a combat stage "
-                f"(one of {[stages[i].name for i in combat_indices]})"
-            )
-        if max_stage_index > last_combat_index:
-            max_stage_index = last_combat_index
     if resumed_from_step is not None:
         # Append-only branch marker: raw history/artifacts remain available for
         # audits, while dashboard readers can discard metrics produced after a
@@ -607,15 +521,9 @@ def main() -> int:
                         print(f"[error] seed={r.seed} {r.error}", file=sys.stderr)
                 raise SystemExit(f"episode error rate too high: {errors}/{len(trained)}")
             visibility = visibility_audit(trained, vocab)
-            sim_vocab_gaps = bool(
-                resolved_vocab_source == "sim"
-                and (visibility["unknown_entities"]
-                     or visibility["unknown_dynamic_entities"])
-            )
-            if ((visibility["violations"] or sim_vocab_gaps)
-                    and not args.allow_visibility_violations):
+            if visibility["violations"] and not args.allow_visibility_violations:
                 # Persist the exact failing batch even when periodic train
-                # recording is disabled, so vocabulary gaps are reproducible.
+                # recording is disabled, so violations are reproducible.
                 episode_writer.write_many(
                     trained, iteration=iteration, stage=stage.name,
                     split="visibility_failure", character="Ironclad",
@@ -623,9 +531,7 @@ def main() -> int:
                 print(json.dumps({"visibility_failure": visibility}, ensure_ascii=False),
                       file=sys.stderr, flush=True)
                 raise SystemExit(
-                    "visibility contract failed: "
-                    + ("; ".join(visibility["violations"])
-                       or "sim-native vocabulary contains unknown entities")
+                    "visibility contract failed: " + "; ".join(visibility["violations"])
                 )
             # Reward inversion must stop before the first gradient update. Logging
             # it after PPO already let one poisoned batch change the policy.

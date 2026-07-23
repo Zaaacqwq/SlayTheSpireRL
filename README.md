@@ -47,11 +47,11 @@ PPO's re-scored log-probs stay consistent with what was sampled.
 
 | Metric | Value |
 |--------|-------|
-| Core library (`rl/src/sts2rl`) | 30 modules · ~4,400 lines Python |
+| Core library (`rl/src/sts2rl`) | 26 modules · ~3,200 lines Python |
 | CLI tools (`tools/`) | 24 scripts · ~5,100 lines Python |
 | Dashboard (`dashboard/src`) | 28 files · ~3,700 lines TS/TSX/CSS |
 | In-game mod (`mod/`) | 11 C# files (`STS2_MCP`) |
-| Tests | 159 Python test functions + Vitest dashboard suites |
+| Tests | 138 Python test functions + Vitest dashboard suites |
 | Entity vocabulary | 2,605 game entities (cards, monsters, relics, powers, potions) |
 | Curriculum stages | 5 (`normal_combat → mixed_combat → act1 → acts_12 → full_a0`) |
 | Engine throughput | 122.81 decision steps/s at 8 workers (M0 benchmark, 0 errors) |
@@ -160,11 +160,10 @@ SlayTheSpireRL/
 │   │   ├── visibility.py       offered-vs-chosen action audit
 │   │   ├── artifacts.py        episode Parquet + incremental history writer
 │   │   ├── evaluator.py        held-out dev evaluation
-│   │   ├── seeds.py            SHA-256 train/dev/test split
-│   │   └── sim/                optional in-process combat backend (research)
+│   │   └── seeds.py            SHA-256 train/dev/test split
 │   ├── schema/                 frozen vocab, boss loadouts, baseline hashes
 │   ├── seeds/                  the frozen seed split
-│   ├── tests/                  library unit tests (+ tests/sim parity harness)
+│   ├── tests/                  library unit tests
 │   └── runs/                   checkpoints · history · episodes (gitignored)
 ├── tools/                      training, monitoring, evaluation, data-prep CLIs
 ├── dashboard/                  Vite + React + TS training dashboard (source)
@@ -173,9 +172,7 @@ SlayTheSpireRL/
 ├── mod/                        C# STS2_MCP mod (in-game half of the bridge)
 ├── plan/                       roadmap · current stage · timeline (authoritative)
 ├── docs/                       contributor + protocol docs
-├── scripts/                    environment setup (setup_sim.ps1)
-├── tests/                      repo-level tooling tests
-└── vendor/                     vendored research simulator (gitignored)
+└── tests/                      repo-level tooling tests
 ```
 
 ---
@@ -210,9 +207,7 @@ development win rate clears its gate. Capability is judged solely on unseen seed
 **Real-engine backend.** Training samples from the actual game, not a
 reimplementation. Each worker holds one persistent engine subprocess restarted on
 timeout; the `external/sts2-cli` submodule is pinned to a specific commit so runs
-are reproducible. (An optional in-process combat simulator lives in
-`rl/src/sts2rl/sim` and was evaluated as a training backend, but real remains the
-live path — see `plan/zhiyue_phase0_results.md`.)
+are reproducible.
 
 **Policy.** A mutable-entity encoder + phase embedding feed a GRU history, a
 Transformer, and a dynamic-candidate **pointer head** plus a value head. Unknown
@@ -242,9 +237,9 @@ inputs during updates — no backprop through time.
 
 `main` is the stable base. Current lines of work:
 
-- **`feat/act2-training`** — the clean bug-fixed baseline: the sim backend as a
-  dependency, per-act boss-funnel telemetry, and `train_control` start/pause,
-  atop the checkpoint-corruption recovery fix.
+- **`feat/act2-training`** — the clean bug-fixed baseline: per-act boss-funnel
+  telemetry and `train_control` start/pause, atop the checkpoint-corruption
+  recovery fix.
 - **`feat/hp-shaping`** — layered on the baseline: concave potential-based HP
   shaping + `--smith-bonus` / `--remove-bonus`. An isolated reward experiment
   (all flags default off) so it can be A/B'd against the baseline and dropped
@@ -280,6 +275,4 @@ or redistributed. For research and educational use.
 
 - **[`external/sts2-cli`](https://github.com/Zaaacqwq/sts2-cli)** — the headless
   engine harness the trainer runs against.
-- **[zhiyue/sts2-rl-agent](https://github.com/zhiyue/sts2-rl-agent)** — the
-  vendored research combat simulator (`vendor/`, gitignored).
 - **PyTorch** for the policy and PPO; **Vite/React/Recharts** for the dashboard.

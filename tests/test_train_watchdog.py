@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 import sys
+import zipfile
 
 import pytest
 
@@ -15,9 +16,18 @@ assert spec.loader is not None
 spec.loader.exec_module(watchdog)
 
 
+def _ckpt(path: Path) -> Path:
+    """A minimal but valid zip, so latest_checkpoint's loadable probe accepts it
+    the way it would a real torch.save checkpoint (touch() leaves an empty file
+    that the corruption probe correctly rejects)."""
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("data.pkl", b"stub")
+    return path
+
+
 def test_latest_checkpoint_orders_numerically_not_lexically(tmp_path):
     for step in (9, 99, 389, 1000):
-        (tmp_path / f"ckpt_{step:05d}.pt").touch()
+        _ckpt(tmp_path / f"ckpt_{step:05d}.pt")
     assert watchdog.latest_checkpoint(tmp_path).name == "ckpt_01000.pt"
 
 
@@ -26,10 +36,8 @@ def test_no_checkpoint_yet_is_a_cold_start_not_an_error(tmp_path):
 
 
 def test_latest_checkpoint_prefers_newer_per_iteration_resume(tmp_path):
-    milestone = tmp_path / "ckpt_00079.pt"
-    resume = tmp_path / "resume.pt"
-    milestone.touch()
-    resume.touch()
+    milestone = _ckpt(tmp_path / "ckpt_00079.pt")
+    resume = _ckpt(tmp_path / "resume.pt")  # written after -> mtime >= milestone
     assert watchdog.latest_checkpoint(tmp_path) == resume
 
 
@@ -76,7 +84,7 @@ def test_resume_is_supplied_by_the_watchdog_not_the_caller(tmp_path, monkeypatch
 def test_restarts_from_the_newest_checkpoint_after_a_crash(tmp_path, monkeypatch):
     run_dir = tmp_path / "m2_v6"
     run_dir.mkdir()
-    (run_dir / "ckpt_00389.pt").touch()
+    _ckpt(run_dir / "ckpt_00389.pt")
     monkeypatch.setattr(watchdog, "other_trainers", lambda _run: [])
     monkeypatch.setattr(watchdog.time, "sleep", lambda _s: None)
 
@@ -115,7 +123,7 @@ def test_gives_up_on_a_crash_loop_instead_of_restarting_forever(tmp_path, monkey
 def test_gives_up_when_long_failures_make_no_checkpoint_progress(tmp_path, monkeypatch):
     run_dir = tmp_path / "m2_v7"
     run_dir.mkdir()
-    (run_dir / "ckpt_00079.pt").touch()
+    _ckpt(run_dir / "ckpt_00079.pt")
     monkeypatch.setattr(watchdog, "other_trainers", lambda _run: [])
     monkeypatch.setattr(watchdog.time, "sleep", lambda _s: None)
     monkeypatch.setattr(watchdog.subprocess, "call", lambda *_a, **_k: 1)

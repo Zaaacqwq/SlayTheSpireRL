@@ -21,10 +21,6 @@ rl/trajectories/
 *.pth
 *.dll.original
 
-# Vendored zhiyue combat simulator (research-only, no upstream LICENSE — never
-# commit its source; recreate with scripts/setup_sim.ps1). See vendor README.
-vendor/
-
 # OS
 .DS_Store
 Thumbs.db
