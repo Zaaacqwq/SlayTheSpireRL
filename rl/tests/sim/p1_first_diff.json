@@ -1,0 +1,42 @@
+{
+  "compared_steps": 11,
+  "failure": null,
+  "matched": true,
+  "scenario": {
+    "ascension": 0,
+    "character": "IRONCLAD",
+    "cmd": "start_combat",
+    "draw_order": [
+      "STRIKE_IRONCLAD",
+      "STRIKE_IRONCLAD",
+      "STRIKE_IRONCLAD",
+      "STRIKE_IRONCLAD",
+      "STRIKE_IRONCLAD"
+    ],
+    "encounter": "SHRINKER_BEETLE_WEAK",
+    "lang": "en",
+    "player": {
+      "deck": [
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD",
+        "STRIKE_IRONCLAD"
+      ],
+      "gold": 99,
+      "hp": 80,
+      "max_hp": 80,
+      "potions": [],
+      "relics": [
+        "BURNING_BLOOD"
+      ]
+    },
+    "seed": "sim-recon-0"
+  },
+  "terminated": true
+}
