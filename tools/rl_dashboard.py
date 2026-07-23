@@ -14,6 +14,11 @@ import threading
 import time
 from urllib.parse import parse_qs, unquote, urlparse
 
+try:
+    from tools.train_control import pause_training, start_training, training_status
+except ModuleNotFoundError:  # direct execution: python tools/rl_dashboard.py
+    from train_control import pause_training, start_training, training_status
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_DIST = REPO_ROOT / "dashboard" / "dist"
@@ -623,6 +628,12 @@ class DashboardServer(ThreadingHTTPServer):
         )
 
 
+# A browser that navigates away / closes a polling tab mid-response drops the
+# socket; the write then raises one of these. It is not an error on our side, so
+# swallow it instead of dumping a socketserver traceback per closed connection.
+_CLIENT_GONE = (ConnectionAbortedError, ConnectionResetError, BrokenPipeError)
+
+
 class DashboardHandler(BaseHTTPRequestHandler):
     server: DashboardServer
 
@@ -630,14 +641,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
         return
 
     def _bytes(self, body: bytes, content_type: str, status: int = 200):
-        self.send_response(status)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(body)))
-        # Hashed asset filenames may cache; JSON and index.html must not.
-        cacheable = not content_type.startswith(("application/json", "text/html"))
-        self.send_header("Cache-Control", "public, max-age=3600" if cacheable else "no-store")
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            # Hashed asset filenames may cache; JSON and index.html must not.
+            cacheable = not content_type.startswith(("application/json", "text/html"))
+            self.send_header("Cache-Control", "public, max-age=3600" if cacheable else "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+        except _CLIENT_GONE:
+            # Client hung up before we finished; nothing left to send.
+            self.close_connection = True
 
     def _json(self, payload, status=200):
         self._bytes(json.dumps(payload, ensure_ascii=False).encode(), "application/json; charset=utf-8", status)
@@ -661,6 +676,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/runs":
                 self._json({"items": list_runs(self.server.data_root),
                             "legacy_episode_count": self.server.legacy_episode_count})
+            elif (len(parts) == 4 and parts[:2] == ["api", "runs"]
+                  and parts[3] == "training-control"):
+                self._json(training_status(self.server.data_root, parts[2]))
             elif len(parts) == 3 and parts[:2] == ["api", "runs"]:
                 self._json(run_summary(self.server.data_root, self.server.data_root / parts[2]))
             elif len(parts) == 4 and parts[:2] == ["api", "runs"] and parts[3] == "metrics":
@@ -701,7 +719,35 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._static(parsed.path)
         except FileNotFoundError as exc:
             self._json({"error": f"not found: {exc}"}, 404)
+        except _CLIENT_GONE:
+            self.close_connection = True
         except Exception as exc:  # surfaced to local UI
+            self._json({"error": str(exc)}, 400)
+
+    def do_POST(self):  # noqa: N802
+        parsed = urlparse(self.path)
+        parts = [unquote(part) for part in parsed.path.strip("/").split("/") if part]
+        try:
+            # This non-simple header prevents an unrelated web page from issuing a
+            # cross-origin POST to a localhost dashboard without a CORS preflight.
+            if self.headers.get("X-STS2-Dashboard") != "1":
+                self._json({"error": "missing dashboard control header"}, 403)
+                return
+            if (len(parts) == 5 and parts[:2] == ["api", "runs"]
+                    and parts[3] == "training-control"):
+                actions = {"start": start_training, "pause": pause_training}
+                action = actions.get(parts[4])
+                if action is None:
+                    self._json({"error": "unknown training action"}, 404)
+                else:
+                    self._json(action(self.server.data_root, parts[2]))
+            else:
+                self._json({"error": "not found"}, 404)
+        except FileNotFoundError as exc:
+            self._json({"error": f"not found: {exc}"}, 404)
+        except _CLIENT_GONE:
+            self.close_connection = True
+        except Exception as exc:
             self._json({"error": str(exc)}, 400)
 
 

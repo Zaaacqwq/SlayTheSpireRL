@@ -34,7 +34,10 @@ class PPOConfig:
     gae_lambda: float = 0.95
     clip: float = 0.2
     learning_rate: float = 3e-4
-    entropy_coef: float = 0.003
+    # NOTE(v7-cont): reverted 0.003 -> 0.01 to reproduce m2_v7_clean_init0's
+    # single-act1 training (0.003 was tuned for sparse multi-act stages, commit
+    # 0ae4fea). Restore to 0.003 before resuming any acts_12 / full-run / sim run.
+    entropy_coef: float = 0.01
     value_coef: float = 0.5
     update_epochs: int = 4
     minibatch_size: int = 256
@@ -48,7 +51,12 @@ class PPOConfig:
     # for *beating* a boss (not just reaching it, so it can't relearn walk-and-die).
     # Set to 1.0 to match the +1 the act1 stage paid for clearing act1 — 0.4 only
     # slowed the collapse (entropy still crept 0.75->0.82) instead of stopping it.
-    act_clear_bonus: float = 1.0
+    # NOTE(v7-cont): reverted 1.0 -> 0.0 to reproduce m2_v7_clean_init0, which
+    # trained before this milestone existed (act1 win was +1 terminal only; the
+    # bonus fires on the act1->act2 step and would ~double the win reward, an
+    # off-distribution jump for the resumed checkpoint). Restore to 1.0 before
+    # resuming any multi-act stage where boss-clear collapse is the concern.
+    act_clear_bonus: float = 0.0
     max_grad_norm: float = 0.5
     target_kl: float | None = None
     hard_kl_stop: float | None = None
@@ -298,11 +306,12 @@ def run_episode(
             state = result.state
     except Exception as exc:  # engine faults poison the worker's episode only
         summary = _state_summary(state) if state is not None else {}
+        error = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
         _emit_live(live_callback, {
             "type": "episode_error", "status": "error", "episode_id": seed,
-            "seed": seed, "step": len(steps), "error": type(exc).__name__, **summary,
+            "seed": seed, "step": len(steps), "error": error, **summary,
         })
-        return EpisodeRecord(seed, steps, None, truncated=False, error=type(exc).__name__,
+        return EpisodeRecord(seed, steps, None, truncated=False, error=error,
                              final_floor=deepest_floor, final_act=deepest_act,
                                      noop_steps=noop_guard.noop_steps)
 
@@ -413,6 +422,7 @@ def ppo_update_epoch(
             "loss": 0.0, "policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0,
             "approx_kl": 0.0, "clip_fraction": 0.0, "grad_norm": 0.0,
             "grad_norm_clipped": 0.0, "explained_variance": 0.0,
+            "minibatches": 0.0,
         }
     advantage_tensor = torch.tensor(advantages, dtype=torch.float32)
     if advantage_tensor.numel() > 1 and float(advantage_tensor.std()) > 1e-8:
@@ -443,6 +453,13 @@ def ppo_update_epoch(
         new_logp = log_probs.gather(-1, batch["actions"].unsqueeze(-1)).squeeze(-1)
         log_ratio = new_logp - batch["old_logp"]
         ratio = log_ratio.exp()
+        minibatch_kl = float(((ratio - 1.0) - log_ratio).mean().detach())
+        # An epoch-level check fires too late when a large rollout produces many
+        # minibatches.  Stop before applying the first update that is already
+        # beyond the hard limit, while always allowing one minibatch so an epoch
+        # cannot become a no-op.
+        if config.hard_kl_stop and batches > 0 and minibatch_kl > config.hard_kl_stop:
+            break
         policy_loss = ppo_clipped_loss(
             batch["old_logp"], new_logp, advantage_tensor[chosen], config.clip,
         )
@@ -462,7 +479,7 @@ def ppo_update_epoch(
         totals["policy_loss"] += float(policy_loss.detach())
         totals["value_loss"] += float(value_loss.detach())
         totals["entropy"] += float(entropy.detach())
-        totals["approx_kl"] += float(((ratio - 1.0) - log_ratio).mean().detach())
+        totals["approx_kl"] += minibatch_kl
         totals["clip_fraction"] += float(((ratio - 1.0).abs() > config.clip).float().mean().detach())
         totals["grad_norm"] += float(grad_norm.detach())
         totals["grad_norm_clipped"] += clipped_sq ** 0.5
@@ -474,4 +491,6 @@ def ppo_update_epoch(
         )
         totals["explained_variance"] += float(explained.detach())
         batches += 1
-    return {k: v / max(batches, 1) for k, v in totals.items()}
+    result = {k: v / max(batches, 1) for k, v in totals.items()}
+    result["minibatches"] = float(batches)
+    return result

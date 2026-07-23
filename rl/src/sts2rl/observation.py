@@ -19,7 +19,7 @@ _KNOWN_FIELDS = frozenset({
     "choices", "options", "bundles", "act", "act_name", "floor",
     "event_id", "event_name", "description",
     "relics", "potions", "card_removal_cost", "can_remove_card",
-    "min_select", "max_select", "victory", "score", "message",
+    "min_select", "max_select", "victory", "score", "message", "prompt",
     "from_event", "map", "orbs", "orb_slots", "stars", "osty",
 })
 

@@ -17,7 +17,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Sequence
 
-from .ppo import EpisodeRecord
+from .ppo import ACT_FLOOR_SPAN, EpisodeRecord
 
 
 def episode_return(record: EpisodeRecord, gamma: float) -> float:
@@ -78,23 +78,50 @@ def offered_actions(records: Sequence[EpisodeRecord]) -> dict[str, int]:
     return dict(counts.most_common())
 
 
-def depth_profile(records: Sequence[EpisodeRecord], boss_floor: float = 15.0) -> dict[str, float | int]:
+def depth_profile(
+    records: Sequence[EpisodeRecord], boss_floor: float = 15.0, acts: int = 1,
+) -> dict[str, float | int]:
     """Where runs actually end, and how many convert once they get there.
 
     ``avg_floor`` alone hid the real story in v5: a mean of 14 looked like steady
     progress while it actually meant "62% of runs walk to the boss door and 0% of
     them win".
+
+    ``acts`` is the number of acts the stage can reach (1 for act1, 2 for acts_12,
+    3 for full runs). A single "boss" number conflated two different things on a
+    multi-act stage: ``reached_boss_rate`` counted reaching the *act-1* boss (floor
+    ``boss_floor``, cumulative), while ``boss_conversion`` was wins over that — i.e.
+    the fraction that went on to win the *whole* stage. The per-act
+    ``reached_act{n}_rate`` / ``cleared_act{n}_rate`` keys split the funnel so each
+    act's reach-vs-beat drop-off is visible; the legacy keys are kept unchanged.
     """
     finished = [r for r in records if r.error is None]
     if not finished:
         return {}
+    n = len(finished)
     reached = [r for r in finished if r.outcome is True or r.final_floor >= boss_floor]
     wins = [r for r in finished if r.outcome is True]
-    return {
-        "episodes": len(finished),
+    profile: dict[str, float | int] = {
+        "episodes": n,
         "reached_boss": len(reached),
-        "reached_boss_rate": round(len(reached) / len(finished), 4),
+        "reached_boss_rate": round(len(reached) / n, 4),
         "boss_conversion": round(len(wins) / len(reached), 4) if reached else 0.0,
-        "median_floor": sorted(r.final_floor for r in finished)[len(finished) // 2],
+        "median_floor": sorted(r.final_floor for r in finished)[n // 2],
         "max_floor": max(r.final_floor for r in finished),
     }
+    # Per-act funnel. cleared(N): the run beat act N's boss — either it advanced
+    # past act N (final_act > N) or it won on act N as the terminal act. reached(N):
+    # it cleared N, or it is still in act N at/past that act's boss floor (reached
+    # the door, may have died there). Floors are cumulative, so act N's boss sits at
+    # (N-1)*ACT_FLOOR_SPAN + boss_floor.
+    for act in range(1, max(acts, 1) + 1):
+        boss_cum = (act - 1) * ACT_FLOOR_SPAN + boss_floor
+        reached_a = cleared_a = 0
+        for r in finished:
+            did_clear = r.final_act > act or (r.final_act == act and r.outcome is True)
+            did_reach = did_clear or (r.final_act == act and r.final_floor >= boss_cum)
+            cleared_a += did_clear
+            reached_a += did_reach
+        profile[f"reached_act{act}_rate"] = round(reached_a / n, 4)
+        profile[f"cleared_act{act}_rate"] = round(cleared_a / n, 4)
+    return profile

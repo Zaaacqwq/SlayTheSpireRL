@@ -197,6 +197,52 @@ def test_ppo_update_epoch_raises_probability_of_advantaged_action():
     assert all(torch.isfinite(torch.tensor(v)) for v in stats.values())
 
 
+def test_ppo_update_epoch_stops_inside_epoch_at_hard_kl_limit():
+    from sts2rl.ppo import encode_update_batch
+
+    state = {"decision": "combat_play", "player": {"hp": 10, "max_hp": 10},
+             "hand": [{"index": 0, "id": "CARD.X", "cost": 1}], "enemies": []}
+    candidates = (ActionCandidate("play_card", {"card_index": 0}),
+                  ActionCandidate("end_turn", {}))
+
+    def build():
+        torch.manual_seed(0)
+        vocab = EntityVocab({})
+        model = EntityRecurrentPolicy(vocab_size=vocab.size, hidden=32, heads=2, layers=1)
+        optimizer = torch.optim.AdamW(model.parameters(), lr=1e-1)
+        probe = encode_update_batch(
+            [StoredStep(state, candidates, 0, 0.0, 0.0, 0.0, None)],
+            vocab, model.hidden_size,
+        )
+        with torch.no_grad():
+            logits, _, _ = model(
+                probe["global"], probe["entities"], probe["candidates"], probe["mask"],
+                candidate_slots=probe["slots"], hidden=probe["hidden"],
+            )
+            log_probs = torch.log_softmax(logits[0], -1)
+        records = []
+        for index, reward in ((0, 1.0), (1, -1.0)):
+            for _ in range(4):
+                record = EpisodeRecord("s", [StoredStep(
+                    state, candidates, index, float(log_probs[index]), 0.0, reward, None,
+                )], True, truncated=False)
+                finalize_episode(record, PPOConfig())
+                records.append(record)
+        return vocab, model, optimizer, records
+
+    common = dict(minibatch_size=1, entropy_coef=0.0, value_coef=0.0)
+    vocab, model, optimizer, records = build()
+    unguarded = ppo_update_epoch(
+        model, optimizer, records, vocab, PPOConfig(hard_kl_stop=None, **common),
+    )
+    vocab, model, optimizer, records = build()
+    guarded = ppo_update_epoch(
+        model, optimizer, records, vocab, PPOConfig(hard_kl_stop=1e-9, **common),
+    )
+    assert unguarded["minibatches"] == 8.0
+    assert guarded["minibatches"] == 1.0
+
+
 def test_length_aware_batches_use_every_step_once_and_pack_similar_states():
     from sts2rl.ppo import _length_aware_batches
 

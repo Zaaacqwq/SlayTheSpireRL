@@ -39,6 +39,7 @@ from sts2rl.live import LiveEventWriter
 from sts2rl.model import EntityRecurrentPolicy
 from sts2rl.ppo import PPOConfig, finalize_episode, ppo_update_epoch, run_episode
 from sts2rl.seeds import split_seed
+from sts2rl.sim import SimCombatBackend, ZhiyueRunBackend, discover_sim_vocab
 from sts2rl.telemetry import action_mix, depth_profile, reward_health
 from sts2rl.visibility import visibility_audit
 
@@ -125,6 +126,18 @@ def make_client() -> EngineClient:
         timeout=float(os.environ.get("STS2_TRAIN_TIMEOUT", "10")),
         env={"STS2_GAME_DIR": os.environ["STS2_GAME_DIR"]},
     )
+
+
+def make_combat_backend(kind: str):
+    """One combat execution backend: real engine subprocess, or the validated
+    in-process zhiyue simulator. Both expose the EngineClient combat surface
+    (``reset_combat`` / ``step`` / ``list_models`` / ``close`` / context
+    manager) that ``run_episode`` drives for combat stages."""
+    if kind == "zhiyue":
+        # Dual-mode: combat stages via the inner SimCombatBackend, run stages
+        # (act1/full_a0) via the wrapped RunManager.
+        return ZhiyueRunBackend()
+    return SimCombatBackend() if kind == "sim" else make_client()
 
 
 def train_seed_stream(offset: int = 0):
@@ -242,6 +255,15 @@ def main() -> int:
     parser.add_argument("--layers", type=int, default=2)
     parser.add_argument("--heads", type=int, default=4)
     parser.add_argument("--terminal-only", action="store_true", help="reward ablation: no floor shaping")
+    parser.add_argument("--entropy-coef", type=float, default=None,
+                        help="PPO entropy bonus (default: PPOConfig default). "
+                             "Lower (~0.003) for sparse multi-act stages to resist "
+                             "entropy drifting up / unlearning; 0.01 for single-act1.")
+    parser.add_argument("--act-clear-bonus", type=float, default=None,
+                        help="Direct reward each time an act boss is beaten (act index "
+                             "advances). Needed on multi-act stages (acts_12/full_a0) where "
+                             "potential shaping gives clearing act1 no signal; 1.0 matches "
+                             "the +1 the act1 stage paid. Leave 0.0 for single-act1 runs.")
     parser.add_argument("--init-seed", type=int, default=0)
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--minibatch-size", type=int, default=256)
@@ -261,9 +283,11 @@ def main() -> int:
     parser.add_argument("--boss-mix", type=float, default=0.15,
                         help="fraction of each run-stage iteration replayed as boss "
                              "fights, so the boss skill is not forgotten (0 disables)")
-    parser.add_argument("--on-policy-boss-replay", action="store_true",
+    parser.add_argument("--on-policy-boss-replay", action=argparse.BooleanOptionalAction,
+                        default=None,
                         help="build boss replay loadouts only from this run's own "
-                             "first-round boss states; never read the legacy v4 buffer")
+                             "first-round boss states; defaults on for zhiyue and off "
+                             "for the real backend")
     parser.add_argument("--boss-replay-min-loadouts", type=int, default=8,
                         help="minimum on-policy snapshots before boss replay activates")
     parser.add_argument("--boss-replay-buffer-size", type=int, default=256,
@@ -273,7 +297,20 @@ def main() -> int:
                              "only the region runs actually visit is trained on")
     parser.add_argument("--allow-visibility-violations", action="store_true",
                         help="diagnostic escape hatch; production training must leave this off")
+    parser.add_argument("--combat-backend", choices=("real", "sim", "zhiyue"), default="real",
+                        help="execution backend. 'sim' is combat-only; 'zhiyue' also "
+                             "serves act1/full-run stages through RunManager")
+    parser.add_argument("--eval-backend", choices=("same", "real"), default="same",
+                        help="backend for dev evaluations; 'real' scores on the ground-truth "
+                             "engine even while sampling from the simulator.")
+    parser.add_argument("--vocab-source", choices=("auto", "fixed", "sim"), default="auto",
+                        help="entity vocabulary source. auto uses deterministic sim discovery "
+                             "for sim/zhiyue and the checked-in fixed vocab for real")
+    parser.add_argument("--sim-vocab-rollouts", type=int, default=16,
+                        help="high-HP Act 1 discovery runs used to append simulator-native ids")
     args = parser.parse_args()
+    if args.on_policy_boss_replay is None:
+        args.on_policy_boss_replay = args.combat_backend == "zhiyue"
     if not 0.0 <= args.boss_mix < 1.0:
         raise SystemExit("--boss-mix must be in [0, 1)")
     if args.boss_replay_min_loadouts < 1:
@@ -282,17 +319,71 @@ def main() -> int:
         raise SystemExit(
             "--boss-replay-buffer-size must be >= --boss-replay-min-loadouts"
         )
+    if args.sim_vocab_rollouts < 0:
+        raise SystemExit("--sim-vocab-rollouts must be non-negative")
+    if (args.combat_backend == "zhiyue" and not args.on_policy_boss_replay
+            and args.boss_mix > 0):
+        raise SystemExit(
+            "zhiyue boss replay requires --on-policy-boss-replay; otherwise set --boss-mix 0"
+        )
 
-    if not os.environ.get("STS2_GAME_DIR"):
+    # The real engine (game data + built DLL) is only needed when a real backend
+    # is actually used; sim/zhiyue-only training runs on machines without the game.
+    real_needed = args.combat_backend == "real" or args.eval_backend == "real"
+    if real_needed and not os.environ.get("STS2_GAME_DIR"):
         raise SystemExit("STS2_GAME_DIR required")
-    if not DLL.exists():
+    if real_needed and not DLL.exists():
         raise SystemExit(f"build first; missing {DLL}")
 
+    run_dir = args.runs_root / args.run_name
+    run_dir.mkdir(parents=True, exist_ok=True)
+    resolved_vocab_source = (
+        "sim" if args.vocab_source == "auto"
+        and args.combat_backend in ("sim", "zhiyue")
+        else "fixed" if args.vocab_source == "auto" else args.vocab_source
+    )
+    run_vocab_path = run_dir / "entity_vocab.json"
+    if run_vocab_path.exists():
+        vocab = EntityVocab.load(run_vocab_path)
+        if resolved_vocab_source == "sim":
+            vocab, vocab_report = discover_sim_vocab(
+                vocab,
+                run_rollouts=args.sim_vocab_rollouts,
+                seed=args.init_seed,
+            )
+            vocab_report = {
+                **vocab_report, "source": "sim_refresh",
+                "path": str(run_vocab_path),
+            }
+            vocab.save(run_vocab_path)
+        else:
+            vocab_report = {"source": "persisted", "path": str(run_vocab_path)}
+    elif resolved_vocab_source == "sim":
+        vocab, vocab_report = discover_sim_vocab(
+            EntityVocab.load(VOCAB_PATH),
+            run_rollouts=args.sim_vocab_rollouts,
+            seed=args.init_seed,
+        )
+        vocab.save(run_vocab_path)
+    else:
+        vocab = EntityVocab.load(VOCAB_PATH)
+        vocab.save(run_vocab_path)
+        vocab_report = {"source": "fixed", "path": str(VOCAB_PATH)}
+    print(json.dumps({"vocab": {**vocab_report, "size": vocab.size}}))
+
     torch.manual_seed(args.init_seed)
-    vocab = EntityVocab.load(VOCAB_PATH)
     split = json.loads(SPLIT_PATH.read_text(encoding="utf-8"))
     dev_seeds = list(split["development_seeds"])
 
+    # entropy_coef / act_clear_bonus have no dataclass-default override path other
+    # than these flags; leaving them None keeps PPOConfig's defaults so single-act1
+    # runs are unaffected. Passing them writes the value into config.json for
+    # reproducibility (the checkpoint's config.json is not replayed on resume).
+    reward_overrides = {}
+    if args.entropy_coef is not None:
+        reward_overrides["entropy_coef"] = args.entropy_coef
+    if args.act_clear_bonus is not None:
+        reward_overrides["act_clear_bonus"] = args.act_clear_bonus
     config = PPOConfig(
         learning_rate=args.lr,
         episodes_per_iteration=args.episodes_per_iteration,
@@ -301,6 +392,7 @@ def main() -> int:
         target_kl=args.target_kl,
         hard_kl_stop=args.hard_kl_stop,
         floor_shaping=not args.terminal_only,
+        **reward_overrides,
     )
     device = torch.device(args.device)
     model = EntityRecurrentPolicy(
@@ -312,8 +404,6 @@ def main() -> int:
     agent = (BatchedAgent(model, vocab, max_batch=max(args.workers, 2))
              if device.type != "cpu" else PolicyAgent(model, vocab))
 
-    run_dir = args.runs_root / args.run_name
-    run_dir.mkdir(parents=True, exist_ok=True)
     logger = ExperimentLogger(run_dir / "tb")
     episode_writer = EpisodeArtifactWriter(run_dir)
     history_writer = IncrementalHistoryWriter(run_dir / "history.jsonl")
@@ -324,14 +414,37 @@ def main() -> int:
     (run_dir / "config.json").write_text(json.dumps({
         **vars(args), "resume": str(args.resume) if args.resume else None,
         "ppo": config.__dict__, "vocab_size": vocab.size,
+        "resolved_vocab_source": resolved_vocab_source,
+        "vocab_report": vocab_report,
         "dev_seed_hash": split["development_seed_hash"],
     }, indent=2, default=str) + "\n", encoding="utf-8")
 
-    with make_client() as probe:
-        catalog = probe.list_models("encounter")
-        act_variant = None if args.all_act_regions else detect_act_variant(probe, catalog)
+    if args.combat_backend in ("sim", "zhiyue"):
+        # The simulator serves its own act1 catalog, so no real engine is needed.
+        # It exposes a single act1 region, so there is no act variant to detect.
+        with SimCombatBackend() as probe:
+            catalog = probe.list_models("encounter")
+        act_variant = None
+    else:
+        with make_client() as probe:
+            catalog = probe.list_models("encounter")
+            act_variant = None if args.all_act_regions else detect_act_variant(probe, catalog)
+    on_policy_buffer_path = run_dir / "on_policy_boss_loadouts.json"
+    on_policy_boss_loadouts: list[Loadout] = []
+    if args.on_policy_boss_replay and on_policy_buffer_path.exists():
+        saved = json.loads(on_policy_buffer_path.read_text(encoding="utf-8"))
+        on_policy_boss_loadouts = [
+            _loadout_from_dict(row) for row in saved.get("loadouts", [])
+        ][-args.boss_replay_buffer_size:]
+
     boss_loadouts: tuple[Loadout, ...] = ()
-    if not args.on_policy_boss_replay and LOADOUTS_PATH.exists():
+    if (args.on_policy_boss_replay
+            and len(on_policy_boss_loadouts) >= args.boss_replay_min_loadouts):
+        # On resume, expose the accumulated native snapshots as a first-class
+        # curriculum rung.  This allows focused boss pretraining before going
+        # back to Act 1, instead of only mixing a small replay slice into runs.
+        boss_loadouts = tuple(on_policy_boss_loadouts)
+    elif not args.on_policy_boss_replay and LOADOUTS_PATH.exists():
         harvested = json.loads(LOADOUTS_PATH.read_text(encoding="utf-8"))
         boss_loadouts = tuple(_loadout_from_dict(row) for row in harvested["loadouts"])
     stages = ironclad_stages(catalog, boss_loadouts, act_variant=act_variant)
@@ -341,15 +454,10 @@ def main() -> int:
         if row["act"] == 1 and row["category"] == "boss"
         and (act_variant is None or str(row.get("act_id")) == act_variant)
     ))
-    on_policy_buffer_path = run_dir / "on_policy_boss_loadouts.json"
-    on_policy_boss_loadouts: list[Loadout] = []
-    if args.on_policy_boss_replay and on_policy_buffer_path.exists():
-        saved = json.loads(on_policy_buffer_path.read_text(encoding="utf-8"))
-        on_policy_boss_loadouts = [
-            _loadout_from_dict(row) for row in saved.get("loadouts", [])
-        ][-args.boss_replay_buffer_size:]
     print(json.dumps({
         "act_variant": act_variant,
+        "combat_backend": args.combat_backend,
+        "eval_backend": args.eval_backend,
         "encounters": {s.name: len(s.encounters) for s in stages if s.is_combat},
         "boss_mix": args.boss_mix,
         "boss_replay_source": (
@@ -357,7 +465,13 @@ def main() -> int:
         ),
         "on_policy_boss_loadouts": len(on_policy_boss_loadouts),
     }))
-    clients = [make_client() for _ in range(args.workers)]
+    clients = [make_combat_backend(args.combat_backend) for _ in range(args.workers)]
+    # Evaluate on the ground-truth engine when asked, even while sampling from the
+    # simulator; otherwise dev evals reuse the training backend.
+    if args.eval_backend == "real" and args.combat_backend != "real":
+        eval_clients = [make_client() for _ in range(args.workers)]
+    else:
+        eval_clients = clients
     stage_index = 0
     iteration_start = 0
     seed_cursor = 0
@@ -369,7 +483,12 @@ def main() -> int:
         if payload.get("migrated_keys"):
             print(json.dumps({"resume_migrated": payload["migrated_keys"],
                               "optimizer_reset": bool(payload.get("optimizer_skipped"))}))
-        stage_index = int(payload["config"].get("stage_index", 0))
+        saved_stage = payload["config"].get("stage")
+        stage_names = [stage.name for stage in stages]
+        stage_index = (
+            stage_names.index(saved_stage) if saved_stage in stage_names
+            else int(payload["config"].get("stage_index", 0))
+        )
         resumed_from_step = int(payload["step"])
         iteration_start = resumed_from_step + 1
         seed_cursor = int(payload["config"].get("seed_cursor", 0))
@@ -379,6 +498,21 @@ def main() -> int:
     max_stage_index = (
         [s.name for s in stages].index(args.max_stage) if args.max_stage else len(stages) - 1
     )
+    if args.combat_backend == "sim":
+        # SimCombatBackend is combat-only: run stages (act1/full_a0) reach the
+        # engine through client.reset(RunConfig), which it does not implement.
+        # (The 'zhiyue' backend wraps RunManager and does serve run stages.)
+        # Refuse to start on a run stage and never let advancement cross into one.
+        combat_indices = [i for i, s in enumerate(stages) if s.is_combat]
+        last_combat_index = max(combat_indices)
+        if not stages[stage_index].is_combat:
+            raise SystemExit(
+                f"--combat-backend sim cannot run non-combat stage "
+                f"{stages[stage_index].name!r}; pick a combat stage "
+                f"(one of {[stages[i].name for i in combat_indices]})"
+            )
+        if max_stage_index > last_combat_index:
+            max_stage_index = last_combat_index
     if resumed_from_step is not None:
         # Append-only branch marker: raw history/artifacts remain available for
         # audits, while dashboard readers can discard metrics produced after a
@@ -452,7 +586,13 @@ def main() -> int:
                         print(f"[error] seed={r.seed} {r.error}", file=sys.stderr)
                 raise SystemExit(f"episode error rate too high: {errors}/{len(trained)}")
             visibility = visibility_audit(trained, vocab)
-            if visibility["violations"] and not args.allow_visibility_violations:
+            sim_vocab_gaps = bool(
+                resolved_vocab_source == "sim"
+                and (visibility["unknown_entities"]
+                     or visibility["unknown_dynamic_entities"])
+            )
+            if ((visibility["violations"] or sim_vocab_gaps)
+                    and not args.allow_visibility_violations):
                 # Persist the exact failing batch even when periodic train
                 # recording is disabled, so vocabulary gaps are reproducible.
                 episode_writer.write_many(
@@ -462,7 +602,9 @@ def main() -> int:
                 print(json.dumps({"visibility_failure": visibility}, ensure_ascii=False),
                       file=sys.stderr, flush=True)
                 raise SystemExit(
-                    "visibility contract failed: " + "; ".join(visibility["violations"])
+                    "visibility contract failed: "
+                    + ("; ".join(visibility["violations"])
+                       or "sim-native vocabulary contains unknown entities")
                 )
             # Reward inversion must stop before the first gradient update. Logging
             # it after PPO already let one poisoned batch change the policy.
@@ -498,6 +640,14 @@ def main() -> int:
                 **stats,
                 "seconds": round(time.perf_counter() - start, 1),
             }
+            if errors:
+                row["episode_errors"] = sorted({
+                    str(record.error) for record in trained if record.error
+                })[:20]
+                row["main_errors"] = sum(record.error is not None for record in records)
+                row["boss_replay_errors"] = sum(
+                    record.error is not None for record in boss_records
+                )
             if args.on_policy_boss_replay:
                 row["on_policy_boss_loadouts"] = len(on_policy_boss_loadouts)
                 row["new_boss_loadouts"] = new_boss_loadouts
@@ -522,7 +672,7 @@ def main() -> int:
             # a small, stable count; a spike means a new swallowed-exception no-op.
             row["noop_steps"] = sum(r.noop_steps for r in records)
             if not stage.is_combat:
-                row["depth"] = depth_profile(records)
+                row["depth"] = depth_profile(records, acts=(stage.max_act or 3))
             if health["inverted"]:
                 print(
                     f"[REWARD INVERTED] iteration {iteration}: losing returns "
@@ -555,7 +705,7 @@ def main() -> int:
 
             if (iteration + 1) % args.eval_every == 0:
                 evaluation, evaluation_records = evaluate_stage(
-                    clients, stage, dev_seeds[: args.eval_episodes], agent, config,
+                    eval_clients, stage, dev_seeds[: args.eval_episodes], agent, config,
                     iteration=iteration, live=live,
                 )
                 episode_writer.write_many(
@@ -566,7 +716,7 @@ def main() -> int:
                 last_dev_win_rate = float(evaluation["win_rate"])
                 dev_row = {"iteration": iteration, "dev": evaluation, "stage": stage.name}
                 if not stage.is_combat:
-                    dev_row["dev"] = {**evaluation, **depth_profile(evaluation_records)}
+                    dev_row["dev"] = {**evaluation, **depth_profile(evaluation_records, acts=(stage.max_act or 3))}
                     for key in ("reached_boss_rate", "boss_conversion"):
                         if key in dev_row["dev"]:
                             logger.scalar(f"{stage.name}/dev_{key}",
@@ -608,6 +758,9 @@ def main() -> int:
             agent.close()
         for client in clients:
             client.close()
+        if eval_clients is not clients:
+            for client in eval_clients:
+                client.close()
         logger.close()
         live.close()
     return 0
