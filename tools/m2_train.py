@@ -264,6 +264,12 @@ def main() -> int:
                              "advances). Needed on multi-act stages (acts_12/full_a0) where "
                              "potential shaping gives clearing act1 no signal; 1.0 matches "
                              "the +1 the act1 stage paid. Leave 0.0 for single-act1 runs.")
+    parser.add_argument("--hp-shaping-coef", type=float, default=None,
+                        help="Potential-based HP-preservation shaping (0 disables, the "
+                             "default). Phi = coef * hp/max_hp, policy-invariant like floor "
+                             "shaping, so it densifies the credit for chip damage without "
+                             "changing the optimum. Aimed at act-2 attrition; ~0.3 keeps it "
+                             "below the +/-1 terminal and +1 act-clear bonus.")
     parser.add_argument("--init-seed", type=int, default=0)
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--minibatch-size", type=int, default=256)
@@ -384,6 +390,8 @@ def main() -> int:
         reward_overrides["entropy_coef"] = args.entropy_coef
     if args.act_clear_bonus is not None:
         reward_overrides["act_clear_bonus"] = args.act_clear_bonus
+    if args.hp_shaping_coef is not None:
+        reward_overrides["hp_shaping_coef"] = args.hp_shaping_coef
     config = PPOConfig(
         learning_rate=args.lr,
         episodes_per_iteration=args.episodes_per_iteration,

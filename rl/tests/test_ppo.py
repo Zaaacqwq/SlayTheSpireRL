@@ -436,3 +436,56 @@ def test_a_win_is_recorded_at_the_deepest_floor_not_the_terminal_floor():
     record = _scripted_run(win, floors=(1, 8, 17))
     assert record.outcome is True
     assert record.final_floor == 17
+
+
+def _scripted_hp_run(final, hps, config, max_hp=80):
+    """A run whose HP follows `hps` across the map, then lands on `final`."""
+    from sts2rl.agent import AgentStep
+
+    action = ActionCandidate("select_map_node", {"col": 0, "row": 0})
+    states = [
+        DecisionState({"decision": "map_select", "context": {"act": 1, "floor": f + 1},
+                       "player": {"hp": hp, "max_hp": max_hp}}, (action,))
+        for f, hp in enumerate(hps)
+    ]
+
+    class Client:
+        def __init__(self): self.i = 0
+        def reset(self, _config): return states[0]
+        def step(self, _action):
+            self.i += 1
+            nxt = states[self.i] if self.i < len(states) else final
+            return StepResult(nxt, terminated=False)
+
+    class Agent:
+        def act(self, *_args, **_kwargs): return AgentStep(0, -0.2, 0.4, None)
+
+    return run_episode(Client(), _run_stage(), "seed-hp", Agent(), config)
+
+
+def test_hp_shaping_is_policy_invariant_and_off_by_default():
+    # Off by default: with coef 0 (PPOConfig default) the HP path is irrelevant —
+    # two runs down the same floors with different HP produce identical rewards.
+    death = DecisionState({"decision": "game_over", "victory": False, "act": 1, "floor": 17}, ())
+    base = _scripted_hp_run(death, hps=(80, 56, 40), config=PPOConfig())
+    base_other_hp = _scripted_hp_run(death, hps=(80, 72, 64), config=PPOConfig())
+    assert [round(s.reward, 6) for s in base.steps] == [round(s.reward, 6) for s in base_other_hp.steps]
+
+    # On: potential-based shaping telescopes over the whole episode to the constant
+    # -coef * Phi(s0) (Phi forced to 0 at the terminal), independent of the HP path
+    # between — the invariance that keeps it from changing the optimum. Isolate the
+    # HP contribution as the discounted-return difference against coef=0.
+    coef, gamma = 0.3, PPOConfig().gamma
+    shaped = _scripted_hp_run(death, hps=(80, 56, 40), config=PPOConfig(hp_shaping_coef=coef))
+    delta = _discounted(shaped) - _discounted(base)
+    assert delta == pytest.approx(-coef * 1.0, abs=1e-6)  # Phi(s0) = 80/80 = 1.0
+
+    # A different HP path from the same start (and same terminal) yields the same
+    # total shaping contribution: proof it is path-independent, not a damage tax.
+    shaped2 = _scripted_hp_run(death, hps=(80, 72, 64), config=PPOConfig(hp_shaping_coef=coef))
+    base2 = _scripted_hp_run(death, hps=(80, 72, 64), config=PPOConfig())
+    assert _discounted(shaped2) - _discounted(base2) == pytest.approx(-coef * 1.0, abs=1e-6)
+
+    # Per-step sign: taking damage (HP drops) is a negative reward that step.
+    step_hp_terms = [s.reward - b.reward for s, b in zip(shaped.steps, base.steps)]
+    assert step_hp_terms[0] < 0  # 80 -> 56 across the first transition

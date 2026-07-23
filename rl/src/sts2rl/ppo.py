@@ -57,6 +57,15 @@ class PPOConfig:
     # off-distribution jump for the resumed checkpoint). Restore to 1.0 before
     # resuming any multi-act stage where boss-clear collapse is the concern.
     act_clear_bonus: float = 0.0
+    # Potential-based HP shaping (0 disables). Phi(s) = coef * hp/max_hp, rewarded
+    # as gamma*Phi(s') - Phi(s) with Phi forced to 0 at every terminal — the same
+    # policy-invariant construction as floor_shaping, so it cannot recreate the
+    # "walk to the boss and die" exploit a flat damage penalty would. Its job is
+    # credit assignment: chip damage many floors before a death is a long-horizon
+    # signal the sparse -1 (discounted over hundreds of steps at gamma 0.999)
+    # barely reaches. Motivated by the acts_12 attrition funnel — half of act-1
+    # clearers die crossing act 2, entering the fatal fight at a median 41% HP.
+    hp_shaping_coef: float = 0.0
     max_grad_norm: float = 0.5
     target_kl: float | None = None
     hard_kl_stop: float | None = None
@@ -146,6 +155,20 @@ def _cumulative_floor(state: DecisionState) -> float:
     return (_act(state) - 1) * ACT_FLOOR_SPAN + _floor(state)
 
 
+def _hp_fraction(state: DecisionState, previous: float) -> float:
+    """Player HP as a fraction of max, the potential for HP shaping. Non-combat
+    screens (some map/shop/event states) can omit HP; those return ``previous``
+    so the potential stays flat across them instead of injecting a spurious swing
+    to zero and back."""
+    raw = state.raw
+    player = raw.get("player") or {}
+    hp = player.get("hp", raw.get("hp"))
+    max_hp = player.get("max_hp", raw.get("max_hp"))
+    if not isinstance(hp, (int, float)) or not isinstance(max_hp, (int, float)) or max_hp <= 0:
+        return previous
+    return max(0.0, min(1.0, hp / max_hp))
+
+
 LiveCallback = Callable[[Mapping[str, Any]], None]
 
 
@@ -233,6 +256,7 @@ def run_episode(
             state = client.reset(episode)
         hidden: tuple[float, ...] | None = None
         previous_floor = _floor(state)  # per-act, for potential-based shaping (unchanged)
+        previous_hp = _hp_fraction(state, 1.0)  # runs start at full HP
         deepest_floor = _cumulative_floor(state)
         while True:
             deepest_act = max(deepest_act, _act(state))
@@ -272,6 +296,9 @@ def run_episode(
             result = client.step(action)
             noop_guard.record(current_hash, result.state.state_hash, action)
             reward = 0.0
+            # Both potential-based shapers zero their potential at any terminal, so
+            # this "is the next state terminal?" test is shared by both.
+            _, next_done = _terminal_outcome(stage, result.state)
             if config.floor_shaping and not stage.is_combat:
                 # Potential-based shaping is policy-invariant only when EVERY terminal
                 # state has potential zero. The engine drops `floor` from the state that
@@ -282,10 +309,16 @@ def run_episode(
                 # +1.76) strictly better than beating it (+0.65). Every one of nine deep
                 # deaths outscored every win. The policy was faithfully learning the
                 # objective we gave it: walk to the boss, then die.
-                _, next_done = _terminal_outcome(stage, result.state)
                 new_floor = 0.0 if next_done else _floor(result.state)
                 reward += 0.2 * (config.gamma * new_floor - previous_floor)
                 previous_floor = new_floor
+            if config.hp_shaping_coef and not stage.is_combat:
+                # Same policy-invariant construction as the floor shaper: Phi = 0 at
+                # terminals (a death lands on hp 0 anyway; a win must be forced to 0
+                # like the floor above so no win-with-HP transition is penalised).
+                new_hp = 0.0 if next_done else _hp_fraction(result.state, previous_hp)
+                reward += config.hp_shaping_coef * (config.gamma * new_hp - previous_hp)
+                previous_hp = new_hp
             # Milestone: beating an act boss advances the act index. A direct
             # (non-potential) reward so clearing act N is strictly better than
             # dying in it — the signal the policy-invariant shaping cannot give.
