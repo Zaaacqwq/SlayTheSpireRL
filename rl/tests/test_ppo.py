@@ -489,3 +489,65 @@ def test_hp_shaping_is_policy_invariant_and_off_by_default():
     # Per-step sign: taking damage (HP drops) is a negative reward that step.
     step_hp_terms = [s.reward - b.reward for s, b in zip(shaped.steps, base.steps)]
     assert step_hp_terms[0] < 0  # 80 -> 56 across the first transition
+
+
+def test_hp_potential_is_concave_pays_little_for_topping_off():
+    # The reason the potential is g(x)=1-(1-x)^2, not linear: healing from low HP
+    # (where death is) must pay far more than topping off near full, so HP shaping
+    # stops bribing the wasteful rest heal that entrenched always-HEAL.
+    death = DecisionState({"decision": "game_over", "victory": False, "act": 1, "floor": 17}, ())
+    coef = 0.3
+
+    def heal_term(hps):  # the HP-shaping reward on the (healing) first transition
+        base = _scripted_hp_run(death, hps=hps, config=PPOConfig(), max_hp=100)
+        shaped = _scripted_hp_run(death, hps=hps, config=PPOConfig(hp_shaping_coef=coef), max_hp=100)
+        return shaped.steps[0].reward - base.steps[0].reward
+
+    low = heal_term((40, 60, 60))    # recover from 40% -> 60%
+    high = heal_term((80, 100, 100))  # top off 80% -> 100%
+    assert low > 0 and high > 0       # healing is always rewarded
+    assert low > 3 * high             # but low-HP recovery pays far more
+
+
+def test_smith_and_remove_bonuses_fire_on_the_target_choice():
+    from sts2rl.agent import AgentStep
+
+    # SMITH offered as candidate 0 so the index-0 stub agent takes it; the state's
+    # options carry the semantic ids the bonus keys off (not the raw index).
+    rest = DecisionState({
+        "decision": "rest_site", "context": {"act": 1, "floor": 6},
+        "player": {"hp": 70, "max_hp": 80},
+        "options": [{"index": 0, "option_id": "HEAL"}, {"index": 1, "option_id": "SMITH"}],
+    }, (ActionCandidate("choose_option", {"option_index": 1}),
+        ActionCandidate("choose_option", {"option_index": 0})))
+    shop = DecisionState({
+        "decision": "shop", "context": {"act": 1, "floor": 7},
+        "player": {"hp": 70, "max_hp": 80},
+    }, (ActionCandidate("remove_card", {}), ActionCandidate("leave_room", {})))
+    death = DecisionState({"decision": "game_over", "victory": False, "act": 1, "floor": 8}, ())
+    states = [rest, shop]
+
+    class Client:
+        def __init__(self): self.i = 0
+        def reset(self, _config): return states[0]
+        def step(self, _action):
+            self.i += 1
+            return StepResult(states[self.i] if self.i < len(states) else death, terminated=False)
+
+    class Agent:
+        def act(self, *_args, **_kwargs): return AgentStep(0, -0.2, 0.4, None)
+
+    off = run_episode(Client(), _run_stage(), "seed-sr", Agent(), PPOConfig())
+    on = run_episode(Client(), _run_stage(), "seed-sr", Agent(),
+                     PPOConfig(smith_bonus=0.1, remove_bonus=0.07))
+    # Floor shaping is identical across both, so the per-step difference is exactly
+    # the new bonus: step 0 chose SMITH, step 1 chose remove_card.
+    assert on.steps[0].reward - off.steps[0].reward == pytest.approx(0.1, abs=1e-6)
+    assert on.steps[1].reward - off.steps[1].reward == pytest.approx(0.07, abs=1e-6)
+
+    # HEAL must not earn the smith bonus.
+    from sts2rl.ppo import _chose_option
+    heal_action = ActionCandidate("choose_option", {"option_index": 0})
+    assert not _chose_option(rest, heal_action, "SMITH")
+    smith_action = ActionCandidate("choose_option", {"option_index": 1})
+    assert _chose_option(rest, smith_action, "SMITH")

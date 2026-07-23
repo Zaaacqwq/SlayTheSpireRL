@@ -65,7 +65,15 @@ class PPOConfig:
     # signal the sparse -1 (discounted over hundreds of steps at gamma 0.999)
     # barely reaches. Motivated by the acts_12 attrition funnel — half of act-1
     # clearers die crossing act 2, entering the fatal fight at a median 41% HP.
+    # The concave HP potential g(x)=1-(1-x)^2 (see _hp_potential) also stops it
+    # paying for a wasteful high-HP rest heal.
     hp_shaping_coef: float = 0.0
+    # Small direct (non-potential) bonuses for two strategic decisions the policy
+    # collapsed to a structural zero on: upgrading a card at a rest site (chose
+    # SMITH over HEAL) and removing a card at a shop. 0 disables. Non-potential so
+    # they do shift the optimum by design; keep them well under the +/-1 terminal.
+    smith_bonus: float = 0.0
+    remove_bonus: float = 0.0
     max_grad_norm: float = 0.5
     target_kl: float | None = None
     hard_kl_stop: float | None = None
@@ -155,18 +163,39 @@ def _cumulative_floor(state: DecisionState) -> float:
     return (_act(state) - 1) * ACT_FLOOR_SPAN + _floor(state)
 
 
-def _hp_fraction(state: DecisionState, previous: float) -> float:
-    """Player HP as a fraction of max, the potential for HP shaping. Non-combat
-    screens (some map/shop/event states) can omit HP; those return ``previous``
-    so the potential stays flat across them instead of injecting a spurious swing
-    to zero and back."""
+def _hp_potential(state: DecisionState, previous: float) -> float:
+    """Concave, saturating potential over player HP for HP shaping.
+
+    g(x) = 1 - (1 - x)^2 on x = hp/max_hp: g(0)=0, g(1)=1, but g'(0)=2 and
+    g'(1)=0. So recovering from low HP (where death lives) is paid steeply while
+    topping off near full is paid almost nothing — a linear hp/max potential
+    instead pays a flat +coef*0.2 for a wasteful 80%->100% rest heal, which
+    directly rewarded the "always HEAL, never SMITH" collapse. Concavity leaves
+    SMITH competitive at high HP and sharpens the attrition signal where it
+    matters. Screens without HP (some map/shop/event states) return ``previous``
+    so the potential stays flat across them rather than swinging to zero."""
     raw = state.raw
     player = raw.get("player") or {}
     hp = player.get("hp", raw.get("hp"))
     max_hp = player.get("max_hp", raw.get("max_hp"))
     if not isinstance(hp, (int, float)) or not isinstance(max_hp, (int, float)) or max_hp <= 0:
         return previous
-    return max(0.0, min(1.0, hp / max_hp))
+    x = max(0.0, min(1.0, hp / max_hp))
+    return 1.0 - (1.0 - x) ** 2
+
+
+def _chose_option(state: DecisionState, action: ActionCandidate, option_id: str) -> bool:
+    """Whether `action` selects the state option carrying `option_id` (e.g. a rest
+    site's "SMITH"). The engine surfaces rest/event choices as ``choose_option``
+    with an ``option_index`` into ``state.options``; this maps that index back to
+    the semantic id so a bonus can target the choice, not a raw index."""
+    if action.action != "choose_option":
+        return False
+    index = (action.args or {}).get("option_index")
+    for option in state.raw.get("options") or ():
+        if option.get("index") == index:
+            return option.get("option_id") == option_id
+    return False
 
 
 LiveCallback = Callable[[Mapping[str, Any]], None]
@@ -256,7 +285,7 @@ def run_episode(
             state = client.reset(episode)
         hidden: tuple[float, ...] | None = None
         previous_floor = _floor(state)  # per-act, for potential-based shaping (unchanged)
-        previous_hp = _hp_fraction(state, 1.0)  # runs start at full HP
+        previous_hp = _hp_potential(state, 1.0)  # runs start at full HP -> g(1)=1
         deepest_floor = _cumulative_floor(state)
         while True:
             deepest_act = max(deepest_act, _act(state))
@@ -316,7 +345,7 @@ def run_episode(
                 # Same policy-invariant construction as the floor shaper: Phi = 0 at
                 # terminals (a death lands on hp 0 anyway; a win must be forced to 0
                 # like the floor above so no win-with-HP transition is penalised).
-                new_hp = 0.0 if next_done else _hp_fraction(result.state, previous_hp)
+                new_hp = 0.0 if next_done else _hp_potential(result.state, previous_hp)
                 reward += config.hp_shaping_coef * (config.gamma * new_hp - previous_hp)
                 previous_hp = new_hp
             # Milestone: beating an act boss advances the act index. A direct
@@ -324,6 +353,16 @@ def run_episode(
             # dying in it — the signal the policy-invariant shaping cannot give.
             if not stage.is_combat and _act(result.state) > _act(state):
                 reward += config.act_clear_bonus
+            # Direct (non-potential) nudges for the two strategic decisions the
+            # policy collapsed to a structural zero on: it always took HEAL over
+            # SMITH at rest (even at full HP) and never once removed a card at a
+            # shop (241 offers, 0 taken). Small so they stay below the +/-1
+            # terminal; they compose with the concave HP potential — heal still
+            # wins when hurt (steep low-HP region), SMITH wins when healthy (flat).
+            if config.smith_bonus and _chose_option(state, action, "SMITH"):
+                reward += config.smith_bonus
+            if config.remove_bonus and action.action == "remove_card":
+                reward += config.remove_bonus
             steps.append(StoredStep(
                 dict(state.raw), tuple(effective), step.index,
                 step.logp, step.value, reward, hidden,

@@ -33,7 +33,8 @@ VALUE_OPTIONS = (
     "act_clear_bonus", "device",
     "record_train_every", "record_train_episodes", "live_retention", "boss_mix",
     "boss_replay_min_loadouts", "boss_replay_buffer_size", "fixed_seed",
-    "hp_shaping_coef", "combat_win_bonus", "elite_win_bonus", "boss_win_bonus",
+    "hp_shaping_coef", "smith_bonus", "remove_bonus",
+    "combat_win_bonus", "elite_win_bonus", "boss_win_bonus",
 )
 FLAG_OPTIONS = (
     "terminal_only", "no_live_monitor", "on_policy_boss_replay", "all_act_regions",

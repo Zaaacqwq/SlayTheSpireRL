@@ -270,6 +270,15 @@ def main() -> int:
                              "shaping, so it densifies the credit for chip damage without "
                              "changing the optimum. Aimed at act-2 attrition; ~0.3 keeps it "
                              "below the +/-1 terminal and +1 act-clear bonus.")
+    parser.add_argument("--smith-bonus", type=float, default=None,
+                        help="Small direct reward for upgrading a card at a rest site "
+                             "(choosing SMITH over HEAL). Breaks the always-HEAL collapse; "
+                             "composes with concave HP shaping (heal still wins when hurt). "
+                             "Non-potential — keep small, e.g. ~0.05.")
+    parser.add_argument("--remove-bonus", type=float, default=None,
+                        help="Small direct reward for removing a card at a shop. Breaks the "
+                             "never-remove collapse (deck-thinning). Blanket (the deck is not "
+                             "in state, so it cannot target starter cards); keep small, ~0.05.")
     parser.add_argument("--init-seed", type=int, default=0)
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--minibatch-size", type=int, default=256)
@@ -392,6 +401,10 @@ def main() -> int:
         reward_overrides["act_clear_bonus"] = args.act_clear_bonus
     if args.hp_shaping_coef is not None:
         reward_overrides["hp_shaping_coef"] = args.hp_shaping_coef
+    if args.smith_bonus is not None:
+        reward_overrides["smith_bonus"] = args.smith_bonus
+    if args.remove_bonus is not None:
+        reward_overrides["remove_bonus"] = args.remove_bonus
     config = PPOConfig(
         learning_rate=args.lr,
         episodes_per_iteration=args.episodes_per_iteration,
