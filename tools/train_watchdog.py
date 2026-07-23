@@ -25,20 +25,44 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import zipfile
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TRAINER = REPO_ROOT / "tools" / "m2_train.py"
 
 
+def _loadable(path: Path) -> bool:
+    """A checkpoint torch can actually resume from.
+
+    torch.save writes a zip archive whose central directory lives at the tail of
+    the file. An unclean shutdown between the write and the OS flushing blocks —
+    os.replace makes the rename atomic but does not fsync the data — leaves a
+    file that exists at the right name with an unflushed tail, and torch.load
+    dies with "failed finding central directory". That single corrupt file used
+    to wedge the whole run: latest_checkpoint always picked it (newest mtime),
+    the trainer crashed on load, and the watchdog gave up. zipfile.is_zipfile
+    validates the end-of-central-directory record — exactly that failure mode —
+    without importing torch.
+    """
+    try:
+        return path.is_file() and zipfile.is_zipfile(path)
+    except OSError:
+        return False
+
+
 def latest_checkpoint(run_dir: Path) -> Path | None:
-    checkpoints = sorted(run_dir.glob("ckpt_*.pt"))
-    milestone = checkpoints[-1] if checkpoints else None
+    candidates = list(run_dir.glob("ckpt_*.pt"))
     resume = run_dir / "resume.pt"
-    if resume.exists() and (
-        milestone is None or resume.stat().st_mtime_ns >= milestone.stat().st_mtime_ns
-    ):
-        return resume
-    return milestone
+    if resume.exists():
+        candidates.append(resume)
+    # Newest first, so a healthy rolling resume.pt still wins over milestones;
+    # skip any corrupt tail so one bad save cannot permanently stall the run.
+    for path in sorted(candidates, key=lambda p: p.stat().st_mtime_ns, reverse=True):
+        if _loadable(path):
+            return path
+        print(json.dumps({"watchdog": "skipping unreadable checkpoint", "path": path.name}),
+              file=sys.stderr, flush=True)
+    return None
 
 
 def other_trainers(run_name: str) -> list[int]:

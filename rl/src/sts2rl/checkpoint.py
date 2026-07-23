@@ -8,7 +8,14 @@ import torch
 def save_checkpoint(path: Path, model, optimizer, *, step: int, config: dict, seed_hash: str = "") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_suffix(path.suffix + f".{os.getpid()}.tmp")
-    torch.save({"model": model.state_dict(), "optimizer": optimizer.state_dict(), "step": step, "config": config, "seed_hash": seed_hash}, temp)
+    # fsync the temp before the atomic rename: os.replace makes the rename atomic
+    # in the namespace but does not flush the file's data blocks, so an unclean
+    # shutdown could otherwise leave the renamed target with an unflushed tail —
+    # a zip missing its central directory that torch.load refuses to open.
+    with open(temp, "wb") as handle:
+        torch.save({"model": model.state_dict(), "optimizer": optimizer.state_dict(), "step": step, "config": config, "seed_hash": seed_hash}, handle)
+        handle.flush()
+        os.fsync(handle.fileno())
     os.replace(temp, path)
 
 
