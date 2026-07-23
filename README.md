@@ -1,149 +1,285 @@
 # Slay the Spire 2 — Reinforcement Learning (RL v2)
 
-Training reinforcement-learning agents to play **Slay the Spire 2** on the *real*
-game engine — no reimplemented rules — and a bridge for driving the actual
-graphical game through the Model Context Protocol (MCP).
+A reinforcement-learning agent that learns to play **Slay the Spire 2** on the
+*real* game engine — no reimplemented rules — trained stage by stage up a
+curriculum and measured only by win rate on held-out seeds. Ships with a bridge
+that drives the actual graphical game through the Model Context Protocol (MCP),
+so a trained policy (or a person, or Claude) can play through the real UI.
 
-The project has two halves that meet at the finish line:
-
-- **Train** — a custom recurrent, action-masked PPO agent learns on a headless
-  build of the real engine (`external/sts2-cli`), stage by stage up a curriculum
-  (combat → Act 1 → multi-act → full run). Capability is measured only by
-  win rate on held-out seeds.
-- **Play** — a C# game mod (`mod/`) plus an MCP server (`mcp/`) expose the live
-  graphical game to an agent, so a trained policy (or a person, or Claude) can
-  play through the real UI. This is the deployment target (milestone M6).
-
-The authoritative roadmap, stage status, and acceptance gates live in
-[`plan/`](plan/) (`rl_v2_roadmap.md`). Status: **M0 & M1 complete; M2 (Ironclad)
-in progress**; M3–M6 not started.
+> Status: **M0 & M1 complete · M2 (Ironclad) in progress**. Authoritative roadmap,
+> stage status, and acceptance gates live in [`plan/`](plan/).
 
 ---
 
-## Repository layout
+## Architecture
 
-| Path | What it is |
-|------|------------|
-| `rl/` | The `sts2rl` training library: engine client, observation/feature encoding, transformer + GRU pointer policy, curriculum, PPO/GAE, checkpointing, telemetry. Plus `rl/schema` (frozen vocab/loadouts), `rl/seeds` (train/dev/test seed split), and `rl/tests`. |
-| `tools/` | Command-line entry points: training, monitoring, evaluation, data prep. Main trainer `m2_train.py`; supervised by `train_watchdog.py`; started/paused via `train_control.py`; live dashboard `rl_dashboard.py`. |
-| `dashboard/` | Vite + React + TypeScript training dashboard (source). Built to `dashboard/dist` (gitignored) and served by `tools/rl_dashboard.py`. |
-| `external/sts2-cli` | Git submodule: the headless engine (pinned commit). Built to a `Sts2Headless.dll` the trainer talks to over a per-worker subprocess protocol. |
-| `mcp/` | MCP server exposing the live graphical game as tools (`get_game_state`, `combat_play_card`, `map_choose_node`, …). |
-| `mod/` | C# mod (`STS2_MCP`) loaded into the graphical game; the in-game half of the MCP bridge. |
-| `plan/` | Authoritative RL roadmap, current-stage tracker, and append-only timeline (Chinese). CI enforces they stay in sync — see `tools/check_rl_plan_sync.py`. |
-| `docs/` | Contributor and protocol docs (`CONTRIBUTING.md`, `HOW_TO_CONNECT.md`, `RL_V2_CLI_STATE_MACHINE.md`, …). |
-| `scripts/` | Environment setup (`setup_sim.ps1`). |
-| `tests/` | Repo-level tests for the tooling (`m2_train`, `rl_dashboard`, `train_watchdog`, vocab build). Library unit tests live under `rl/tests/`. |
-| `vendor/` | Vendored research-only combat simulator (gitignored; recreate with `scripts/setup_sim.ps1`). Imported by `rl/src/sts2rl/sim`. |
+```
+                 ActionCandidate │        │ DecisionState / StepResult
+                                 ▼        │
+  ┌───────────────────────────────────────────────────────────────┐
+  │  Real engine  ·  external/sts2-cli (pinned submodule)          │
+  │  Sts2Headless.dll  —  one persistent subprocess per worker     │
+  └───────────────────────────▲───────────────────┬───────────────┘
+                              │                   │
+  ┌───────────────────────────┴───────────────────▼───────────────┐
+  │  sts2rl  (rl/src)                                              │
+  │   EngineClient  ·  observation + candidate features           │
+  │   mutable-entity + GRU + Transformer pointer/value policy      │
+  │   recurrent masked PPO + GAE  ·  curriculum  ·  telemetry      │
+  └───────────────┬───────────────────────────────▲───────────────┘
+      history.jsonl│  episodes/*.parquet            │ config.json · checkpoints
+      ┌────────────▼───────────┐          ┌─────────┴──────────┐
+      │ tools/rl_dashboard.py  │          │ tools/train_watchdog│
+      │  (live web dashboard)  │          │ + train_control.py  │
+      └────────────────────────┘          └─────────────────────┘
 
-Generated / machine-local (all gitignored): `rl/runs/` (checkpoints, history,
-episodes), `rl/.venv/`, `dashboard/dist`, `dashboard/node_modules`, build output
-under `mod/`, `__pycache__`, `.pytest_cache`.
+  Deploy (M6):  trained policy ─► mcp/ server ─► mod/ (in-game) ─► graphical STS2
+```
+
+Two abstractions carry everything: `EngineClient.reset(RunConfig) → DecisionState`
+and `.step(ActionCandidate) → StepResult`. The policy only ever sees the
+candidates the engine actually offers, and the trajectory records only those, so
+PPO's re-scored log-probs stay consistent with what was sampled.
 
 ---
 
-## Quick start (training)
+## Project stats
 
-Prerequisites: **Python ≥ 3.10**, a **.NET SDK** (for the engine), a local install
-of **Slay the Spire 2**, and its data directory.
+| Metric | Value |
+|--------|-------|
+| Core library (`rl/src/sts2rl`) | 30 modules · ~4,400 lines Python |
+| CLI tools (`tools/`) | 24 scripts · ~5,100 lines Python |
+| Dashboard (`dashboard/src`) | 28 files · ~3,700 lines TS/TSX/CSS |
+| In-game mod (`mod/`) | 11 C# files (`STS2_MCP`) |
+| Tests | 159 Python test functions + Vitest dashboard suites |
+| Entity vocabulary | 2,605 game entities (cards, monsters, relics, powers, potions) |
+| Curriculum stages | 5 (`normal_combat → mixed_combat → act1 → acts_12 → full_a0`) |
+| Engine throughput | 122.81 decision steps/s at 8 workers (M0 benchmark, 0 errors) |
+| Target characters | Ironclad (M2) → Silent, Defect, Necrobinder, Regent (M3) |
+
+---
+
+## Quick start
+
+### Prerequisites
+
+- **Python ≥ 3.10** (trainer), **.NET SDK** (headless engine), a CUDA GPU is
+  recommended for training.
+- A local install of **Slay the Spire 2** and its data directory. Nothing from the
+  game is bundled or redistributed — you supply your own copy.
+
+### Install
 
 ```bash
-# 1. Clone with the engine submodule
-git clone --recurse-submodules <repo>
+# Clone with the engine submodule
+git clone --recurse-submodules https://github.com/Zaaacqwq/SlayTheSpireRL.git
 cd SlayTheSpireRL
 
-# 2. Build the headless engine (see external/sts2-cli/README)
-#    -> produces src/Sts2Headless/bin/Debug/net9.0/Sts2Headless.dll
+# Build the headless engine (see external/sts2-cli/README)
+#   -> external/sts2-cli/src/Sts2Headless/bin/Debug/net9.0/Sts2Headless.dll
 
-# 3. Python env for the trainer
+# Python env for the trainer
 python -m venv rl/.venv
 rl/.venv/Scripts/pip install -e "rl[train,dev]"   # torch, pyarrow, pytest
 
-# 4. Point the engine at the game data
+# Point the engine at the game data
 export STS2_GAME_DIR=".../Slay the Spire 2/data_sts2_windows_x86_64"
 ```
 
-Run training under the watchdog (auto-restarts on crash, resumes the newest intact
-checkpoint), then open the dashboard:
+### Train
+
+Training runs under a watchdog that auto-restarts on crash and resumes the newest
+*intact* checkpoint (a corrupt `resume.pt` is skipped, not fatal). Each run lives
+in `rl/runs/<name>/` and is fully described by its `config.json`.
 
 ```bash
-# start / pause / status for a run in rl/runs/<name>/ (reads its config.json)
-python tools/train_control.py start  --run-name <name>
-python tools/train_control.py status --run-name <name>
-python tools/train_control.py pause  --run-name <name>
-
-# live dashboard at http://127.0.0.1:8000
-python tools/rl_dashboard.py
+# start / status / pause a run (reads rl/runs/<name>/config.json)
+python tools/train_control.py start  --run-name my_run
+python tools/train_control.py status --run-name my_run
+python tools/train_control.py pause  --run-name my_run
 ```
 
-A run directory (`rl/runs/<name>/`) holds `config.json` (its full CLI recipe),
-`history.jsonl` (per-iteration metrics), rolling `resume.pt` + milestone
-`ckpt_NNNNN.pt`, and recorded `episodes/`. The watchdog validates a checkpoint
-before resuming and skips a corrupt one, so an unclean shutdown cannot wedge a run.
+Or invoke the trainer directly for a fresh run:
 
-## Quick start (play bridge)
+```bash
+python tools/m2_train.py --run-name my_run --workers 12 --device cuda \
+    --stage acts_12 --max-stage acts_12 \
+    --entropy-coef 0.003 --act-clear-bonus 1.0 --boss-mix 0.15
+```
 
-The `mod/` (built with `mod/build.ps1` / `tools/deploy_mod.ps1`) loads into the
-graphical game and speaks to the `mcp/` server, which presents the game as MCP
-tools. See [`docs/HOW_TO_CONNECT.md`](docs/HOW_TO_CONNECT.md) and
-[`mcp/README.md`](mcp/README.md).
+Key flags: `--stage/--max-stage` (curriculum window), `--workers`,
+`--episodes-per-iteration`, `--entropy-coef`, `--act-clear-bonus`,
+`--hp-shaping-coef`, `--smith-bonus`, `--remove-bonus`, `--boss-mix`,
+`--target-kl/--hard-kl-stop`. See `python tools/m2_train.py --help`.
+
+### Monitor
+
+```bash
+python tools/rl_dashboard.py          # http://127.0.0.1:8000
+```
+
+The dashboard reads every run's `history.jsonl` live: win-rate and floor curves,
+reward-health (win vs loss return), the per-act boss funnel (reached vs cleared
+Act N), the action mix, and episode replays. Every chart's legend is a click
+filter. Rebuild the frontend with `npm --prefix dashboard run build` after editing
+`dashboard/src`.
+
+### Play the real game (deploy bridge)
+
+```bash
+pwsh mod/build.ps1          # build the STS2_MCP mod
+pwsh tools/deploy_mod.ps1   # install it into the game
+# launch STS2, then run the MCP server (mcp/) and connect an agent
+```
+
+See [`docs/HOW_TO_CONNECT.md`](docs/HOW_TO_CONNECT.md) and
+[`mcp/README.md`](mcp/README.md) for the tool surface
+(`get_game_state`, `combat_play_card`, `map_choose_node`, `rest_choose_option`, …).
 
 ---
 
-## How training is set up
+## Project structure
 
-- **Backend** — the real engine only. `EngineClient.reset(RunConfig) →
-  DecisionState`, `step(ActionCandidate) → StepResult`, one persistent subprocess
-  per worker, restarted on timeout. The `external/sts2-cli` submodule is pinned to
-  a specific commit.
-- **Policy** — mutable entity encoding + phase embedding → GRU history →
-  transformer → dynamic-candidate pointer head + value head. Unknown state fields
-  fall into `UNK` with a warning that production training escalates to fail-fast.
-- **Algorithm** — custom recurrent masked PPO (γ 0.999, GAE 0.95, clip 0.2,
-  AdamW), hidden states stored detached and replayed (no BPTT).
-- **Reward** — terminal +1 win / −1 loss, plus policy-invariant potential-based
-  floor-progress shaping for run stages; a per-act-clear bonus keeps multi-act
-  stages from collapsing. Optional (experiment) potential-based HP shaping and
-  small rest/shop nudges — see the branch layout below.
-- **Seeds** — SHA-256 split into train / development / test; the frozen test set
-  never influences selection.
+```
+SlayTheSpireRL/
+├── rl/                         RL training library and data
+│   ├── src/sts2rl/             the sts2rl package
+│   │   ├── engine.py           EngineClient: per-worker subprocess protocol
+│   │   ├── protocol.py         DecisionState · ActionCandidate · StepResult
+│   │   ├── observation.py      state normalization
+│   │   ├── entities.py         entity vocabulary + batch encoding
+│   │   ├── features.py         dynamic-candidate feature encoding
+│   │   ├── model.py            EntityRecurrentPolicy (entity → GRU → Transformer → pointer/value)
+│   │   ├── agent.py            PolicyAgent (single-step inference)
+│   │   ├── batch_inference.py  BatchedAgent (batched GPU inference across workers)
+│   │   ├── ppo.py              rollout, reward shaping, PPO update
+│   │   ├── losses.py           GAE + clipped PPO loss
+│   │   ├── curriculum.py       stages, encounter sampling, boss loadouts
+│   │   ├── checkpoint.py       atomic (fsync) save / validated load
+│   │   ├── telemetry.py        action_mix · depth_profile · reward_health
+│   │   ├── visibility.py       offered-vs-chosen action audit
+│   │   ├── artifacts.py        episode Parquet + incremental history writer
+│   │   ├── evaluator.py        held-out dev evaluation
+│   │   ├── seeds.py            SHA-256 train/dev/test split
+│   │   └── sim/                optional in-process combat backend (research)
+│   ├── schema/                 frozen vocab, boss loadouts, baseline hashes
+│   ├── seeds/                  the frozen seed split
+│   ├── tests/                  library unit tests (+ tests/sim parity harness)
+│   └── runs/                   checkpoints · history · episodes (gitignored)
+├── tools/                      training, monitoring, evaluation, data-prep CLIs
+├── dashboard/                  Vite + React + TS training dashboard (source)
+├── external/sts2-cli/          pinned submodule: the headless engine
+├── mcp/                        MCP server exposing the live graphical game
+├── mod/                        C# STS2_MCP mod (in-game half of the bridge)
+├── plan/                       roadmap · current stage · timeline (authoritative)
+├── docs/                       contributor + protocol docs
+├── scripts/                    environment setup (setup_sim.ps1)
+├── tests/                      repo-level tooling tests
+└── vendor/                     vendored research simulator (gitignored)
+```
+
+---
+
+## Curriculum & milestones
+
+Training climbs a fixed ladder; a stage advances only when the held-out
+development win rate clears its gate. Capability is judged solely on unseen seeds.
+
+| Stage | What it trains |
+|-------|----------------|
+| `normal_combat` | single weak/regular fights |
+| `mixed_combat` | fights including elites |
+| `act1` | a full Act-1 run to the boss |
+| `acts_12` | Acts 1–2 (current M2 focus) |
+| `full_a0` | the full unascended run |
+
+| Milestone | Scope | Status |
+|-----------|-------|--------|
+| **M0** | Engine validation, schema freeze, throughput/recovery benchmarks | ✅ done |
+| **M1** | Process pool, Gymnasium env, Transformer/GRU pointer policy, PPO/GAE, checkpointing, eval | ✅ done |
+| **M2** | Ironclad up the curriculum; ≥40% A0 win rate on 1,000 isolated test seeds | 🚧 in progress |
+| **M3** | Silent · Defect · Necrobinder · Regent (reuse M2 curriculum) | ⬜ |
+| **M4** | One unified five-character model (distillation + multitask PPO) | ⬜ |
+| **M5** | Ascension A1–A10 | ⬜ |
+| **M6** | Graphical deployment via the MCP bridge | ⬜ |
+
+---
+
+## How it works
+
+**Real-engine backend.** Training samples from the actual game, not a
+reimplementation. Each worker holds one persistent engine subprocess restarted on
+timeout; the `external/sts2-cli` submodule is pinned to a specific commit so runs
+are reproducible. (An optional in-process combat simulator lives in
+`rl/src/sts2rl/sim` and was evaluated as a training backend, but real remains the
+live path — see `plan/zhiyue_phase0_results.md`.)
+
+**Policy.** A mutable-entity encoder + phase embedding feed a GRU history, a
+Transformer, and a dynamic-candidate **pointer head** plus a value head. Unknown
+state fields fall into `UNK` with a warning that production training escalates to
+fail-fast, so the model never silently trains on states it cannot see.
+
+**Algorithm.** A custom **recurrent, action-masked PPO** (γ 0.999, GAE 0.95,
+clip 0.2, AdamW). Recurrent hidden states are stored detached and replayed as
+inputs during updates — no backprop through time.
+
+**Reward design.**
+- Terminal **+1 win / −1 loss**.
+- **Potential-based floor shaping** (`0.2·(γ·Φ′−Φ)`) for run stages — policy-
+  invariant, so it densifies progress without changing the optimum. (A non-
+  potential version once taught the agent to *walk to the boss and die*; the
+  potential form makes that impossible.)
+- **Act-clear bonus** on beating an act boss, the dense signal potential shaping
+  cannot give on a multi-act stage.
+- *(experiment)* **Concave potential-based HP shaping** plus small
+  `--smith-bonus` / `--remove-bonus` nudges for the rest-site and shop decisions
+  the policy otherwise collapses on. See the branch layout below.
+
+**Seeds.** SHA-256 splits seeds into train / development / test. The frozen
+1,000-seed test set never influences selection.
 
 ## Branch layout
 
-Current lines of work (feature branches; `main` is the stable base):
+`main` is the stable base. Current lines of work:
 
-- `feat/act2-training` — the clean bug-fixed baseline: sim backend as a
-  dependency, per-act boss-funnel telemetry, and `train_control` start/pause.
-- `feat/hp-shaping` — layered on the baseline: **potential-based HP shaping** with
-  a concave/saturating potential, plus small `--smith-bonus` / `--remove-bonus`
-  nudges. An isolated reward experiment (all flags default off), so it can be
-  A/B'd against the baseline and dropped without touching it.
+- **`feat/act2-training`** — the clean bug-fixed baseline: the sim backend as a
+  dependency, per-act boss-funnel telemetry, and `train_control` start/pause,
+  atop the checkpoint-corruption recovery fix.
+- **`feat/hp-shaping`** — layered on the baseline: concave potential-based HP
+  shaping + `--smith-bonus` / `--remove-bonus`. An isolated reward experiment
+  (all flags default off) so it can be A/B'd against the baseline and dropped
+  without touching it.
 
 ---
 
-## Tools index
+## Documentation
 
-Training & ops: `m2_train.py` (trainer), `train_watchdog.py` (supervisor),
-`train_control.py` (start/pause/status, shared by CLI and dashboard),
-`rl_dashboard.py` (live web dashboard), `render_eval_dashboard.py`.
+| Document | Contents |
+|----------|----------|
+| [`plan/rl_v2_roadmap.md`](plan/rl_v2_roadmap.md) | Authoritative roadmap, architecture decisions, milestone gates |
+| [`plan/rl_v2_current_stage.md`](plan/rl_v2_current_stage.md) | Current-stage tasks, evidence, blockers, next steps |
+| [`plan/timeline.md`](plan/timeline.md) | Append-only ledger of every milestone / stage / training rework |
+| [`plan/known_gaps_backlog.md`](plan/known_gaps_backlog.md) | Known gaps and backlog |
+| [`docs/HOW_TO_CONNECT.md`](docs/HOW_TO_CONNECT.md) | Connecting an agent to the graphical game |
+| [`docs/RL_V2_CLI_STATE_MACHINE.md`](docs/RL_V2_CLI_STATE_MACHINE.md) | Engine CLI protocol / state machine |
+| [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) | Contribution guidelines |
+| [`mcp/README.md`](mcp/README.md) | MCP play-bridge tool reference |
 
-Evaluation & analysis: `m2_final_eval.py`, `act1_audit.py`,
-`m2_probe_deckbuild.py`.
-
-Data prep: `m2_build_vocab.py`, `m2_harvest_loadouts.py`,
-`m2_record_episodes.py`, `p0_baseline_hash.py`.
-
-Play / deploy: `live_play.py`, `deploy_mod.ps1`.
-
-CI: `check_rl_plan_sync.py` enforces the `plan/` synchronization rules.
-
-Earlier-milestone scripts (`m0_*`, `m1_*`, `m2_baseline.py`, `*_queue.sh`) are kept
-for reference from the M0/M1 validation work and are no longer part of the M2 loop.
+The `plan/` docs are the source of truth; CI (`tools/check_rl_plan_sync.py`)
+enforces that code and plan stay in sync.
 
 ---
 
 ## License
 
-See [`LICENSE`](LICENSE). The engine (`external/sts2-cli`) is a pinned fork based on
-its own upstream MIT license; game assets and the `sts2.dll` are **not** included
-or redistributed — you supply your own copy of the game.
+See [`LICENSE`](LICENSE). The engine (`external/sts2-cli`) is a pinned fork based
+on its own upstream MIT license; game assets and `sts2.dll` are **not** included
+or redistributed. For research and educational use.
+
+## Acknowledgments
+
+- **[`external/sts2-cli`](https://github.com/Zaaacqwq/sts2-cli)** — the headless
+  engine harness the trainer runs against.
+- **[zhiyue/sts2-rl-agent](https://github.com/zhiyue/sts2-rl-agent)** — the
+  vendored research combat simulator (`vendor/`, gitignored).
+- **PyTorch** for the policy and PPO; **Vite/React/Recharts** for the dashboard.
