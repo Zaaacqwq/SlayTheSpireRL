@@ -283,7 +283,7 @@ v6 首个 act1 smoke 的实测输出已显示 `use_potion: 0.023`（今天之前
 
 旧 `m2_v7_h256` 在 iteration 123 主动停止，以应用 Windows 计时器/攒批吞吐修复。随后对 704 个 artifact、58,301 个真实决策做离线覆盖审计，确认仍存在与 v1–v5 同类的结构盲区：shop 304 次却只有 `leave_room`；193 个多选状态产生 7,919 个碰撞候选；128 个 bundle 全为 `UNK`；目标敌人没有 pointer；敌我 power amount、intent 类型、未来 boss、完整地图、卡牌改造与目标实际伤害没有完整进入模型；unknown/offered 告警代码存在但未接入训练。
 
-因此旧 v7 checkpoint 只作回归对照，不继续正式训练。保留 `hidden=256 / layers=4 / heads=8` 方向，按 [`v7_clean_plan.md`](v7_clean_plan.md) 完成动作/观测契约、visibility audit 与 fail-fast 门槛后，从新初始化启动 `m2_v7_clean_init0`。
+因此旧 v7 checkpoint 只作回归对照，不继续正式训练。保留 `hidden=256 / layers=4 / heads=8` 方向，完成动作/观测契约、visibility audit 与 fail-fast 门槛后，从新初始化启动 `m2_v7_clean_init0`（原 `v7_clean_plan.md` 计划已归档进 [`timeline.md`](timeline.md) 的 v7-clean 各条）。
 
 P1–P3 初始验收词表为 2,299 行（含 UNK）；正式 Act 1 早期按失败样本追加到 2,304 后，iteration 83 又发现 Slippery Bridge 更深页面，证明逐个补洞不足。现在词表构建会从 checked-in 英文事件 localization 系统提取全部 `.options.*.title` 键，并继续全局 append-only：147 个新 option 位于 2,304–2,450，原有 1–2,303 索引完全不移动，当前共 2,451 行。最新全量复审覆盖 1,304 个 artifact、99,938 个真实决策，15 类动作全部 offered/chosen，candidate collision、pointer miss、unknown field/entity、非有限 feature 与 violations 均为 0。
 

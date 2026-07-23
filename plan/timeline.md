@@ -275,7 +275,7 @@ P5 验收      ❌
 
 旧 `m2_v7_h256` 从零训练，参数量约为 v6 的 5.7 倍。normal/mixed/boss 很快晋级，Act 1 dev 最佳 8%，随后 avg_floor 从 11.54 降到 6.04。run 于 Windows 15.625ms 等待问题修复时主动停止；性能修复语义不变，不能解释策略退化。
 
-停止后首次对模型输入本身做全轨迹可见性审计（704 artifact、58,301 决策），发现 shop 完全不可购买/删卡、card-select 多选候选碰撞、bundle 内容全为 `UNK`、目标敌人无指针、power amount/intent/boss/完整地图/卡牌改造/目标实际伤害不可见，且 unknown/offered 告警未接入训练。旧 v7 checkpoint 不再续训；保留大模型方向，以 [`v7_clean_plan.md`](v7_clean_plan.md) 重建可见性契约并从头训练。
+停止后首次对模型输入本身做全轨迹可见性审计（704 artifact、58,301 决策），发现 shop 完全不可购买/删卡、card-select 多选候选碰撞、bundle 内容全为 `UNK`、目标敌人无指针、power amount/intent/boss/完整地图/卡牌改造/目标实际伤害不可见，且 unknown/offered 告警未接入训练。旧 v7 checkpoint 不再续训；保留大模型方向，重建可见性契约并从头训练（原 `v7_clean_plan.md` 计划已归并入下方 v7-clean 各条）。
 
 #### v7-clean — P1–P3 可见性防火墙完成（2026-07-14）
 
@@ -318,3 +318,21 @@ iteration 79 mixed dev 40/50 后首次进入 Act 1，strict audit 在 PPO 前拦
 同时修复恢复损失与 Dashboard 分支混淆：训练器每个成功 iteration 原子写 `resume.pt`，watchdog 在它比 milestone 更新时优先恢复，因此不再因十轮一存而丢掉 iteration 80–82；每次 resume 还写入带 cutoff 的 history marker，Dashboard 据此只构造当前 canonical 分支，并按 live/history/checkpoint 最近活跃时间默认选 run。相关测试加上 checkpoint 临时文件清理回归后，RL 102 + 根目录 29 = 131 passed。下一步从 checkpoint 79 再次进入 Act 1，现场验证 iteration 80 的逐迭代恢复点，然后连续观察至少 10 轮至新 milestone。
 
 现场恢复验收通过：Dashboard 在 resume marker 后从废弃分支 iteration 87 正确回到 canonical 79；新的 iteration 80 完成后原子生成 `resume.pt`，watchdog helper 选择它而非旧 milestone。iteration 80–89 连续十轮共 820 episodes / 118,832 decisions，所有轮次均为 0 engine error、0 collision、0 pointer miss、0 unknown entity、0 non-finite、0 violation；原失败点 iteration 83 正常通过。新 `ckpt_00089.pt` 含 2,451 行 embedding，50-seed dev 胜率 26%、平均 15.3 层；训练继续到 iteration 90，`resume.pt` 也已推进到 step 90。
+
+#### v7-clean plan 归档说明（`v7_clean_plan.md` 已并入本文件后删除）
+
+`plan/v7_clean_plan.md` 的完成内容已由上述 v7-clean 各条吸收。补记其中两点，以免随文档删除而丢失：
+
+- **触发 v7-clean 的旧 v7 审计缺口（含计数）**：704 artifact / 58,301 决策审计——shop 304 个 state / 3,952 商品**购买/删卡候选为 0**（只能 `leave_room`）；193 个多选 state 的 **7,919 个候选表示完全相同**（升级/删除/变换≈随机）；64 个 state / 128 个 bundle 全 `UNK`；约 118,628 个定向出牌候选只有裸 `target_index`（无目标敌人绑定）；敌人 power 未提取、intent 类型丢失、23,324 次 `damage_by_target` ≠ `stats.damage`、`context.boss` 与完整地图不可见、6,472 个 state 的 enchantment/affliction 按普通卡处理、`offered/consume_warnings` 未接入训练 loop。均为 v1–v5 同类结构盲区在 v7 大模型上的重现。
+- **未做的延后实验 P6 — 序列 PPO**：v7-clean 基线稳定后再做 truncated BPTT（sequence length 32、burn-in 8、episode-boundary mask），不得与可见性修复混入同一 run 以保持因果可解释。**仍未开始**，作为后续独立实验保留于此。
+
+v7-clean 的 P5 act1-gate 计划（连续三 gate ≥30% 才进 full A0）已被后续**直接进入多幕（`acts_12`）**的方向取代。
+
+#### Approach A — zhiyue 快模拟器作为训练后端 · 已搁置为训练策略，保留为依赖
+
+**2026-07-15 起。`plan/approach_a_zhiyue_sim_backend.md` 归档后删除；实测详情见保留的 [`zhiyue_phase0_results.md`](zhiyue_phase0_results.md)。**
+
+- **动机**：v7 act1 ~72% 天花板的一个真实根因是**采样饥饿**——真 STS2 CLI 仅 ~70 步/秒（12 workers）。`zhiyue/sts2-rl-agent` 的纯 Python headless 模拟器单核 ~146 战斗/秒、3,658 步/秒，且有整轮 `run_env`（地图/商店/事件/奖励）。目标：把它接成一个**环境后端**，把每个实验从「几十小时」压到「几十分钟」，保留我方全部领先（entity 模型 / 指针动作空间 / curriculum / reward）。
+- **实施**：不 commit 它的源码（无正式 license，research-only）→ vendored 到 `vendor/sts2-rl-agent`，pin `1b7e7ce` + 本地 parity 修正（见 `vendor/sts2-rl-agent/UPSTREAM.md`，gitignored）。复用 `sim/combat-backend` 分支已有、且带真游戏 parity 测试的 `SimCombatBackend` 包 zhiyue `CombatState`，新增 `ZhiyueRunBackend` 包 `RunManager` 提供整轮能力；`--combat-backend {real,sim,zhiyue}` + `--vocab-source`。
+- **结果**：**Phase 0 = GO**（端到端 env ~54x 吞吐、无保真告警、能学）；**Phase 1 = 完成**（整轮后端）。**Phase 2**：native vocab、on-policy boss replay、per-minibatch KL guard、96-episode Act 1 基线均落地，但 100-seed dev 最高仅 **18%，未突破 72%**——瓶颈已从采样/协议**收敛到 boss 信用分配**（不再是吞吐）。
+- **决策**：**zhiyue sim 作为训练策略搁置，真引擎（`--combat-backend real`）仍是正式训练主线**；但 `rl/src/sts2rl/sim` 作为**运行时依赖保留**（`m2_train` 即使 real 后端也 import 它）。后续多幕训练（`acts_12`、`from1499`、`hp-shaping`）均在真引擎上进行。

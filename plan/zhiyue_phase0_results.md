@@ -1,6 +1,6 @@
 # Approach A — Phase 0 + Phase 1 结果：zhiyue 快模拟器后端
 
-> 承接 `approach_a_zhiyue_sim_backend.md`。记录 Phase 0（战斗 spike，go/no-go）与 Phase 1（整轮后端）的实施与实测。Phase 0 = GO，Phase 1 = 完成。
+> 记录 Phase 0（战斗 spike，go/no-go）与 Phase 1（整轮后端）的实施与实测。Phase 0 = GO，Phase 1 = 完成。（原方案文档 `approach_a_zhiyue_sim_backend.md` 已归档进 [`timeline.md`](timeline.md) 的「Approach A」条目后删除。）
 
 ## 结论：**GO** ✅
 
