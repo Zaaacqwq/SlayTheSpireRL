@@ -12,11 +12,13 @@
 
 **证据**：trainer 日志大量 `ProtocolError: no legal actions derived for 'card_select'`（本 run 257 次），单迭代内攒到 6/96 越过 `MAX_EPISODE_ERROR_RATE=0.05` → `episode error rate too high` → fail-closed exit。`from1499` 也有 40 次但从未在单迭代扎堆到 >5%。
 
-**根因**：`protocol.py::legal_actions` 的 `card_select` 分支只在 `cards and 0 < min_select <= max_select <= 4` 时枚举 `select_cards` 组合；`min_select>0 且 max_select>4`（强制选 5+ 张）两个分支都不进 → `out` 为空 → 抛错。`SELECT_CARDS_CANDIDATE_BUDGET=256` 的 islice 本就封顶内存,`<=4` 守卫多余且过严。
+**根因**：`card_select` 只在 `0 < min_select <= max_select <= 4` 时枚举 `select_cards`;`min_select>0 且 max_select>4`（强制选 5+ 张）两分支都不进 → `out` 空 → `ProtocolError`。**关键：`<=4` 守卫不只是防组合爆炸,它正好把每候选的实体绑定数压在 `MAX_CANDIDATE_BINDINGS=16` 以内**——select_cards 每张牌绑 ~2–4 个实体(slot + stat/enchant/affliction),所以只有小选牌能被编码。
 
-**为何现在爆发**：hp-shaping 干净 run 模型变强、走更深（dev reached_act2 0.55、cleared_act2 0.19），撞上深层大选牌屏的频率升高,单迭代内扎堆越过 5% 阈值。**不是 sim 退役引起的**。
+**为何现在爆发**：hp-shaping 干净 run 模型变强、走更深（dev reached_act2 0.5+），撞深层大选牌屏更频繁。**不是 sim 退役引起的**。
 
-**修复**：去掉 `max_select<=4` 守卫（大选牌照常枚举,仍受 budget 封顶）；并加兜底——若仍产不出动作（无牌可选/min>max）则给 `skip_select`,card_select **永不再抛 ProtocolError**。测试 `test_forced_large_card_select_yields_candidates_not_an_error` / `test_degenerate_card_select_never_raises`。
+**弯路(记录教训)**：第一次「修复」直接去掉 `<=4` 守卫让大选牌照常枚举——结果产生 17-绑定候选,在 `entities.py:318` 抛 `ValueError: candidate select_cards references N entities`,而且**这错在 `BatchedAgent` 推理线程里抛 → 推理服务器崩 → 整批 episode 报 `InferenceServerError`**(比原来的 per-episode ProtocolError 更糟)。之前误判的「InferenceServerError / CUDA」批量崩其实同根。truncate 绑定也不行——会造候选碰撞,而碰撞是 fail-close 违规项。
+
+**正确修复**：新增 `SELECT_CARDS_MAX_SIZE=4`,枚举张数封顶到它(proven 绑定安全,from1499 从没报过 ValueError);`min_select` 超过它无法表示 → 兜底 `skip_select` 优雅降级(不崩、不碰撞、per-episode 安全)。测试 `test_card_select_caps_selection_size_to_the_binding_budget` / `test_mandatory_select_larger_than_cap_falls_back_to_confirm` / `test_degenerate_card_select_never_raises`。**遗留**:agent 对 >4 张的选牌无法精细表达(选 ≤4 或跳过),是已知表征限制。
 
 ---
 

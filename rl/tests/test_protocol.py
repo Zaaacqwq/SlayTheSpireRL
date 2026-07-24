@@ -108,20 +108,33 @@ def test_explicit_can_use_false_is_respected():
     assert not [a for a in legal_actions(state) if a.action == "use_potion"]
 
 
-def test_forced_large_card_select_yields_candidates_not_an_error():
-    # A mandatory select of 5+ cards used to fail closed (only max_select <= 4 was
-    # enumerated), so once the policy went deep enough to hit it the episode error
-    # rate crossed the 5% gate and killed the iteration. It must now yield real
-    # select_cards candidates, bounded by the enumeration budget.
+def test_card_select_caps_selection_size_to_the_binding_budget():
+    # A select_cards binds one entity per referenced card PLUS its stat/enchant/
+    # affliction facts, so only small selections fit MAX_CANDIDATE_BINDINGS. A large
+    # max_select must be capped to SELECT_CARDS_MAX_SIZE (picking fewer is legal) —
+    # briefly enumerating the full range emitted a 17-binding candidate that raised
+    # inside the batched inference thread and killed the whole batch.
+    from sts2rl.protocol import SELECT_CARDS_MAX_SIZE
     state = {
         "decision": "card_select", "player": {},
-        "cards": [{"index": i} for i in range(8)],
-        "min_select": 5, "max_select": 6,
+        "cards": [{"index": i} for i in range(20)],
+        "min_select": 1, "max_select": 20,
     }
     actions = legal_actions(state)
-    assert actions and all(a.action == "select_cards" for a in actions)  # no skip: min_select > 0
+    assert actions and all(a.action == "select_cards" for a in actions)  # min_select > 0, no skip
     assert len(actions) <= 256  # SELECT_CARDS_CANDIDATE_BUDGET
-    assert all(len(a.args["indices"].split(",")) in (5, 6) for a in actions)
+    assert all(1 <= len(a.args["indices"].split(",")) <= SELECT_CARDS_MAX_SIZE for a in actions)
+
+
+def test_mandatory_select_larger_than_cap_falls_back_to_confirm():
+    # A mandatory select of more cards than can be bound is unrepresentable, so it
+    # must degrade to confirm rather than raise or emit an over-limit candidate.
+    actions = legal_actions({
+        "decision": "card_select", "player": {},
+        "cards": [{"index": i} for i in range(30)],
+        "min_select": 5, "max_select": 8,  # min > SELECT_CARDS_MAX_SIZE (4)
+    })
+    assert [a.action for a in actions] == ["skip_select"]
 
 
 def test_degenerate_card_select_never_raises():

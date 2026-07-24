@@ -18,6 +18,14 @@ DECISIONS = frozenset({
 # blows up the padded candidate tensor during PPO batching (a 34 GiB alloc in
 # full_a0). 256 keeps memory bounded while covering all ordinary small selects.
 SELECT_CARDS_CANDIDATE_BUDGET = 256
+# A select_cards candidate binds one entity per referenced card PLUS that card's
+# stat/enchantment/affliction facts (~2-4 each), so only small selections fit the
+# encoder's MAX_CANDIDATE_BINDINGS=16 budget. Selecting 5+ used to fail closed;
+# briefly enumerating them instead emitted a 17-binding candidate that raised
+# inside the batched inference thread and killed the whole batch. Cap the
+# enumerated selection size here (proven binding-safe) and degrade larger
+# mandatory selects to confirm rather than crash.
+SELECT_CARDS_MAX_SIZE = 4
 
 
 class ProtocolError(RuntimeError):
@@ -148,29 +156,23 @@ def legal_actions(state: Mapping[str, Any]) -> tuple[ActionCandidate, ...]:
         if min_select == 0:
             out.append(ActionCandidate("skip_select", {}))
         # The upstream protocol accepts comma-separated indices for multi-select.
-        if cards and 0 < min_select <= max_select:
+        # Only selections up to SELECT_CARDS_MAX_SIZE fit the encoder's binding
+        # budget; the islice budget then bounds the combination count.
+        cap = min(max_select, SELECT_CARDS_MAX_SIZE)
+        if cards and 0 < min_select <= cap:
             indices = [str(card["index"]) for card in cards]
-            # C(n, k) is combinatorial: a "choose 4 from a 30-card pile" select in
-            # act2/3 is tens of thousands of candidates, which blows up the padded
-            # candidate tensor (a single 34 GiB alloc seen in full_a0). The islice
-            # budget keeps the count bounded regardless of how large max_select is,
-            # so a forced select of 5+ cards (which used to fail closed and, once
-            # the policy went deep enough to hit it often, poisoned whole
-            # iterations past the 5% error gate) still yields real candidates. The
-            # chosen action stays reproducible because combinations() order is fixed.
             combos = (
                 combo
-                for size in range(min_select, max_select + 1)
+                for size in range(min_select, cap + 1)
                 for combo in itertools.combinations(indices, size)
             )
             out.extend(
                 ActionCandidate("select_cards", {"indices": ",".join(combo)})
                 for combo in itertools.islice(combos, SELECT_CARDS_CANDIDATE_BUDGET)
             )
-        # A mandatory selection we still could not enumerate (no cards to select,
-        # or a malformed min>max range) must not raise and kill the episode — a
-        # single deep card-select would otherwise fail the whole iteration. Confirm
-        # is the safe escape; the engine either accepts it or resolves the prompt.
+        # A mandatory selection larger than the binding budget (or with no cards)
+        # is unrepresentable; degrade to confirm rather than raise and kill the
+        # episode — one deep card-select would otherwise fail the whole iteration.
         if not out:
             out.append(ActionCandidate("skip_select", {}))
     elif phase == "shop":
