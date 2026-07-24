@@ -106,3 +106,29 @@ def test_explicit_can_use_false_is_respected():
         {"index": 0, "id": "POTION.X", "target_type": "Self", "can_use": False},
     ])
     assert not [a for a in legal_actions(state) if a.action == "use_potion"]
+
+
+def test_forced_large_card_select_yields_candidates_not_an_error():
+    # A mandatory select of 5+ cards used to fail closed (only max_select <= 4 was
+    # enumerated), so once the policy went deep enough to hit it the episode error
+    # rate crossed the 5% gate and killed the iteration. It must now yield real
+    # select_cards candidates, bounded by the enumeration budget.
+    state = {
+        "decision": "card_select", "player": {},
+        "cards": [{"index": i} for i in range(8)],
+        "min_select": 5, "max_select": 6,
+    }
+    actions = legal_actions(state)
+    assert actions and all(a.action == "select_cards" for a in actions)  # no skip: min_select > 0
+    assert len(actions) <= 256  # SELECT_CARDS_CANDIDATE_BUDGET
+    assert all(len(a.args["indices"].split(",")) in (5, 6) for a in actions)
+
+
+def test_degenerate_card_select_never_raises():
+    # A mandatory selection we cannot enumerate (no cards) must still yield a legal
+    # action (confirm) rather than raise and poison the iteration.
+    actions = legal_actions({
+        "decision": "card_select", "player": {},
+        "cards": [], "min_select": 1, "max_select": 1,
+    })
+    assert [a.action for a in actions] == ["skip_select"]

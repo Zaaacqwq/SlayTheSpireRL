@@ -4,6 +4,22 @@
 
 ---
 
+## 00. ✅ 强制多选 5+ 张的 `card_select` fail-closed → 拖垮整迭代（已修复）
+
+**状态**：**已修复（2026-07-24，`protocol.py`）**。
+
+**现象**：`m2_v7_acts12_hpshape` 训练跑几分钟就自动停：trainer `exit 1`、watchdog 连崩 8 次后放弃。
+
+**证据**：trainer 日志大量 `ProtocolError: no legal actions derived for 'card_select'`（本 run 257 次），单迭代内攒到 6/96 越过 `MAX_EPISODE_ERROR_RATE=0.05` → `episode error rate too high` → fail-closed exit。`from1499` 也有 40 次但从未在单迭代扎堆到 >5%。
+
+**根因**：`protocol.py::legal_actions` 的 `card_select` 分支只在 `cards and 0 < min_select <= max_select <= 4` 时枚举 `select_cards` 组合；`min_select>0 且 max_select>4`（强制选 5+ 张）两个分支都不进 → `out` 为空 → 抛错。`SELECT_CARDS_CANDIDATE_BUDGET=256` 的 islice 本就封顶内存,`<=4` 守卫多余且过严。
+
+**为何现在爆发**：hp-shaping 干净 run 模型变强、走更深（dev reached_act2 0.55、cleared_act2 0.19），撞上深层大选牌屏的频率升高,单迭代内扎堆越过 5% 阈值。**不是 sim 退役引起的**。
+
+**修复**：去掉 `max_select<=4` 守卫（大选牌照常枚举,仍受 budget 封顶）；并加兜底——若仍产不出动作（无牌可选/min>max）则给 `skip_select`,card_select **永不再抛 ProtocolError**。测试 `test_forced_large_card_select_yields_candidates_not_an_error` / `test_degenerate_card_select_never_raises`。
+
+---
+
 ## 0. ✅ KAISER_CRAB_BOSS（act2 boss 之一）不刷怪 → 免费通关（已修复）
 
 **状态**：**已修复（2026-07-21，引擎侧 Harmony 补丁）**。发现→根因→修复→回归全部完成。

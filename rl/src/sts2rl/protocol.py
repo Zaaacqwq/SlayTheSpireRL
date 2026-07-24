@@ -148,14 +148,16 @@ def legal_actions(state: Mapping[str, Any]) -> tuple[ActionCandidate, ...]:
         if min_select == 0:
             out.append(ActionCandidate("skip_select", {}))
         # The upstream protocol accepts comma-separated indices for multi-select.
-        # Bound combinations to the declared range; unknown larger ranges fail closed.
-        if cards and 0 < min_select <= max_select <= 4:
+        if cards and 0 < min_select <= max_select:
             indices = [str(card["index"]) for card in cards]
             # C(n, k) is combinatorial: a "choose 4 from a 30-card pile" select in
             # act2/3 is tens of thousands of candidates, which blows up the padded
-            # candidate tensor (a single 34 GiB alloc seen in full_a0). Enumerate
-            # deterministically up to a budget so memory stays bounded; the chosen
-            # action stays reproducible because combinations() order is fixed.
+            # candidate tensor (a single 34 GiB alloc seen in full_a0). The islice
+            # budget keeps the count bounded regardless of how large max_select is,
+            # so a forced select of 5+ cards (which used to fail closed and, once
+            # the policy went deep enough to hit it often, poisoned whole
+            # iterations past the 5% error gate) still yields real candidates. The
+            # chosen action stays reproducible because combinations() order is fixed.
             combos = (
                 combo
                 for size in range(min_select, max_select + 1)
@@ -165,6 +167,12 @@ def legal_actions(state: Mapping[str, Any]) -> tuple[ActionCandidate, ...]:
                 ActionCandidate("select_cards", {"indices": ",".join(combo)})
                 for combo in itertools.islice(combos, SELECT_CARDS_CANDIDATE_BUDGET)
             )
+        # A mandatory selection we still could not enumerate (no cards to select,
+        # or a malformed min>max range) must not raise and kill the episode — a
+        # single deep card-select would otherwise fail the whole iteration. Confirm
+        # is the safe escape; the engine either accepts it or resolves the prompt.
+        if not out:
+            out.append(ActionCandidate("skip_select", {}))
     elif phase == "shop":
         for key, action, arg in (("cards", "buy_card", "card_index"), ("relics", "buy_relic", "relic_index"), ("potions", "buy_potion", "potion_index")):
             for item in state.get(key, []):
