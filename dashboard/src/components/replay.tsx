@@ -41,8 +41,17 @@ export function GameCard({ card, selected = false, option = false }: {
 export function EnemyCard({ enemy }: { enemy: any }) {
   const { t } = useI18n()
   const ratio = enemy.max_hp ? Math.max(0, Math.min(1, enemy.hp / enemy.max_hp)) : 0
+  // `damage` is per hit, so a multi-hit intent used to read as a single small number:
+  // Hunter Killer's "Attack 8" is really 8x3 = 24 and kills through 22 HP, which made a
+  // correct death look like an engine bug in replay. Show the multiplier and the total.
   const intents = (enemy.intents || [])
-    .map((intent: any) => `${intent.type}${intent.damage !== null && intent.damage !== undefined ? ` ${intent.damage}` : ''}`)
+    .map((intent: any) => {
+      if (intent.damage === null || intent.damage === undefined) return intent.type
+      const hits = intent.hits ?? 1
+      if (hits <= 1) return `${intent.type} ${intent.damage}`
+      const total = intent.total_damage ?? intent.damage * hits
+      return `${intent.type} ${intent.damage}×${hits} = ${total}`
+    })
     .join(' · ')
   return (
     <div className="entity">
