@@ -80,3 +80,49 @@ headless 无视觉节点 → 两个单例都 null → `throw`。异常被 `TaskH
 并在 `protocol.py` 加对应动作。属于 `use_potion`-never-offered 那一类动作空间修复。
 注意：探测时启发式会喝药（`use_potion` 优先级 1 > `end_turn`）导致 belt 提前清空、污染测试——
 测满槽奖励行为时战斗中绝不能喝药。
+
+---
+
+## 2. Act 1 只跑 Overgrowth，Underdocks 半个幕从未训练（headless 写死，非游戏行为）
+
+**状态**：**已确认根因（2026-07-28，反编译 `lib/sts2.dll` 定位）**。**决定：暂不修，等 act2 训练完全收敛后再开放 run 配置**，让两个 act1 区域都进训练分布。
+
+**现象**：所有对局的 Act 1 恒为 **OVERGROWTH** 区域。Underdocks 的全部内容——boss `WATERFALL_GIANT_BOSS` / `LAGAVULIN_MATRIARCH_BOSS` / `SOUL_FYSH_BOSS`，精英 `PHANTASMAL_GARDENERS_ELITE` / `SKULKING_COLONY_ELITE` / `TERROR_EEL_ELITE`，外加 4 weak + 10 regular——**在训练和 dev 里一次都没出现过**。
+
+**证据**：
+- 既有实测：300/300 个 A0 Ironclad train seed 的 Act 1 都是 Overgrowth（见 `rl_v2_current_stage.md`）。
+- 本次补充探针（共 105 局，全部 `start_run` 后读第 1 层公布的 boss id）：Ironclad 75 局 = 5 个种子命名空间 × 15（dev `m2-a0-ironclad-*` / train `m2-a0-ironclad-train-*` / 纯整数 / 随机词 / 十六进制），另加 Silent / Defect / Necrobinder 各 10 局——**100% OVERGROWTH，零例外**。说明根本不是掷骰子。
+- `ModelDb.ActsByIndex` = `[[OVERGROWTH, UNDERDOCKS], [HIVE], [GLORY]]`。**只有 act1 是多区域**，act2/act3 各只有一个区域，不受影响。
+
+**根因**：`RunSimulator.StartRun`（`RunSimulator.cs:271`）调用
+`RunState.CreateForTest(players:, ascensionLevel:, seed:)`，**没有传可选的 `acts` 参数**，于是落到
+`CreateForTest` 内部的 `(acts ?? ActModel.GetDefaultList())`。两个方法的差别是决定性的：
+
+```csharp
+// headless 实际走的
+GetDefaultList()   // 每个 act index 取 IsDefault 的那个 —— 确定性，永远 Overgrowth
+
+// 真实游戏走的
+GetRandomList(rng, unlockState, isMultiplayer)
+    // 收集该 index 下所有 IsUnlocked 的 act
+    // 若存在「已解锁但不在 Progress.DiscoveredActs 里」的非默认 act → 强制给它（新内容优先展示）
+    // 否则 → rng.NextItem(list2)    ← 在已解锁 act 之间随机
+```
+
+即：**两个区域都解锁并发现之后，真实游戏按 run 随机选，约 50/50。always-Overgrowth 是 headless 入口的产物，不是游戏行为。**
+
+**影响**：策略对**约一半的真实 act1 曝光为零**，迁移到真实游戏时这一半会直接翻车。
+
+这同时修正了 `bdedd83`（act1 区域过滤 `act_variant`）的定性：该优化当时的推理是「真实局永远走不到 Underdocks，训练它是浪费」——**这个前提本身是 headless 造成的假象**。在当前 harness 内它仍是正确优化（确实永远遇不到，且把有效训练密度翻倍），但作为通往真实游戏的训练，它把缺口固化了。注意历史上「Waterfall Giant 通关率最低 / 几乎不可赢」的记录来自它还在 boss 池里的时期。
+
+**修复方向**：让 `StartRun` 自己构造 acts —— 用 run seed 派生的 Rng 从 `ModelDb.ActsByIndex[i]` 逐 index 随机取。
+**不要直接调 `GetRandomList`**：它依赖 `SaveManager.Instance.Progress.DiscoveredActs` 和 `TestMode.IsOff`，headless 下这两个是 stub，行为不可控；自己按 index 随机既确定（seed 可复现）又干净。建议加协议开关（如 `start_run` 的 `act_variant` / `random_acts` 字段），默认保持现状，便于 A/B。
+
+**为何押后（连带后果，都需要重新校准）**：
+1. `detect_act_variant()` 的 8 个探针会开始分歧 → fail-open 保留全池 → `bdedd83` 的「有效训练密度翻倍」直接回退（normal 16→30、mixed 19→36、boss 3→6）。
+2. dev 种子集有一半变成 Underdocks，**dev 胜率在改动前后不可比**，曲线会断层。
+3. 课程三个阶段的晋级门槛是在单区域池上校准的，需要重定。
+
+**过渡方案（不改 run 生成也能覆盖）**：Underdocks 的遭遇本来就能用 `reset_combat`（`CombatConfig(encounter=...)`）直接开——已实测 `WATERFALL_GIANT_BOSS` 可正常开战并观测到 `Steam Eruption` 逐回合叠加。所以可以先靠 `boss_mix` / `on_policy_boss_replay` 定向注入做曝光，不动主分布。
+
+**优先级**：中。当前 acts_12 run 不受影响（内部一致），但**在追求真实游戏 parity 之前必须解决**。
