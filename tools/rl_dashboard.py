@@ -15,8 +15,10 @@ import time
 from urllib.parse import parse_qs, unquote, urlparse
 
 try:
+    from tools.encounter_stats import PARQUET_LOCK, encounter_stats
     from tools.train_control import pause_training, start_training, training_status
 except ModuleNotFoundError:  # direct execution: python tools/rl_dashboard.py
+    from encounter_stats import PARQUET_LOCK, encounter_stats
     from train_control import pause_training, start_training, training_status
 
 
@@ -27,8 +29,9 @@ os.environ.setdefault("ARROW_NUM_THREADS", "1")
 
 # PyArrow 25 can segfault in its native mimalloc/Parquet metadata path when
 # multiple ThreadingHTTPServer workers enter it at once on macOS. Python locks
-# cannot recover from that SIGSEGV, so every Arrow operation is serialized.
-_PARQUET_READ_LOCK = threading.RLock()
+# cannot recover from that SIGSEGV, so every Arrow operation is serialized —
+# including the encounter scanner's background thread, hence the shared lock.
+_PARQUET_READ_LOCK = PARQUET_LOCK
 _LEGACY_CACHE_LOCK = threading.Lock()
 _LEGACY_CACHE: dict[Path, tuple[tuple[tuple[str, int, int], ...], list[dict]]] = {}
 _ENRICH_CACHE_LOCK = threading.Lock()
@@ -431,6 +434,26 @@ def run_timeline(data_root: Path, run_name: str) -> dict:
     return {"run": run_name, "items": items}
 
 
+def run_encounters(data_root: Path, run_name: str, query: dict[str, list[str]]) -> dict:
+    """Win rate per fight, split into normal / elite / boss.
+
+    Derived from the recorded episodes rather than from training telemetry, so it
+    works on finished runs and on a live one without restarting the trainer. The
+    first request on a large run only sees the newest episodes; the rest stream in
+    as the background scan fills the cache (``progress`` reports how far it got).
+    """
+    run_dir = data_root / run_name
+    if not _inside(data_root, run_dir) or not run_dir.is_dir():
+        raise FileNotFoundError(run_name)
+    payload = encounter_stats(
+        run_dir,
+        split=query.get("split", [""])[0],
+        last_iterations=int(query.get("last_iterations", ["0"])[0] or 0),
+    )
+    payload["run"] = run_name
+    return payload
+
+
 def list_episodes(data_root: Path, run_name: str, query: dict[str, list[str]]) -> dict:
     if run_name == "legacy":
         rows = _legacy_episodes(data_root)
@@ -690,6 +713,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._json(list_episodes(self.server.data_root, parts[2], query))
             elif len(parts) == 4 and parts[:2] == ["api", "runs"] and parts[3] == "timeline":
                 self._json(run_timeline(self.server.data_root, parts[2]))
+            elif len(parts) == 4 and parts[:2] == ["api", "runs"] and parts[3] == "encounters":
+                self._json(run_encounters(self.server.data_root, parts[2], query))
             elif len(parts) == 5 and parts[:2] == ["api", "runs"] and parts[3:] == ["live", "workers"]:
                 self._json(live_workers(self.server.data_root, parts[2]))
             elif (len(parts) == 7 and parts[:2] == ["api", "runs"]

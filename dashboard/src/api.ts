@@ -1,4 +1,4 @@
-import type { Episode, LiveEvent, LiveSnapshot, MetricRow, ReplayStep, Run, TimelineItem, TrainingControlStatus } from './types'
+import type { EncounterStats, Episode, LiveEvent, LiveSnapshot, MetricRow, ReplayStep, Run, TimelineItem, TrainingControlStatus } from './types'
 
 async function get<T>(path: string): Promise<T> {
   const response = await fetch(path)
@@ -39,6 +39,14 @@ export const fetchMetrics = (run: string) =>
 
 export const fetchTimeline = (run: string) =>
   get<{ items: TimelineItem[] }>(`/api/runs/${encodeURIComponent(run)}/timeline`)
+
+export const fetchEncounters = (run: string, split: string, lastIterations: number) => {
+  const params = new URLSearchParams()
+  if (split) params.set('split', split)
+  if (lastIterations) params.set('last_iterations', String(lastIterations))
+  return get<EncounterStats>(
+    `/api/runs/${encodeURIComponent(run)}/encounters?${params}`)
+}
 
 export const fetchLiveWorkers = (run: string) =>
   get<LiveSnapshot>(`/api/runs/${encodeURIComponent(run)}/live/workers`)

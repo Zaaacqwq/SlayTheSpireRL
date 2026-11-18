@@ -126,3 +126,112 @@ GetRandomList(rng, unlockState, isMultiplayer)
 **过渡方案（不改 run 生成也能覆盖）**：Underdocks 的遭遇本来就能用 `reset_combat`（`CombatConfig(encounter=...)`）直接开——已实测 `WATERFALL_GIANT_BOSS` 可正常开战并观测到 `Steam Eruption` 逐回合叠加。所以可以先靠 `boss_mix` / `on_policy_boss_replay` 定向注入做曝光，不动主分布。
 
 **优先级**：中。当前 acts_12 run 不受影响（内部一致），但**在追求真实游戏 parity 之前必须解决**。
+
+---
+
+## 3. ✅ on-policy boss replay 缓冲区 256/256 全是 act1 boss（已修复）
+
+**状态**：**已修复（2026-07-28，`tools/m2_train.py`）**，已部署（`m2_v7_acts12_hpshape` iter 2585 重启）。
+
+**现象**：`boss_mix=0.15` 每迭代拿 14 局专门重打 boss，`boss_replay_win_rate` 常年 0.79–0.93 看着很健康；但仪表盘新增的逐遭遇胜率显示 act2 三个 boss 只有 58–67%。
+
+**证据**：直接读 `on_policy_boss_loadouts.json`（iter 2578）：
+```
+VANTOM_BOSS 93 (36%) · CEREMONIAL_BEAST_BOSS 84 (33%) · THE_KIN_BOSS 79 (31%)
+```
+**256/256 全是 act1 boss，act2 一个都没有。** 所以 `boss_replay_win_rate` 量的一直是 act1 boss 的保持率（本来就 ~95%）。
+
+**根因**：`update_on_policy_boss_buffer` 对每局在**第一个** boss 快照上 `break`（docstring 写的就是 "one snapshot per run"）。每个走到 act2 boss 的局都必然先经过 act1 boss，所以 act2 快照永远进不了缓冲区。次要原因：`del buffer[:-max_size]` 这种平铺滚动窗口天然被出现频率最高的 boss 占满，即使收集修好了也会重新倾斜。
+
+**影响**：15% 的采样预算长期花在**已经打赢 95%** 的三场仗上，而真正缺的三场（58–67%）一次定向训练都没吃到。参考 2026-07-18 的 act1 调参结论：boss_mix 是 act1 阶段唯一真正起效的杠杆，机制本身有效——只是瞄错了目标。
+
+**修复**：收集改成**每局每个 boss 各一个快照**（用 `captured` 集合去重同一场 round-1 的多个 `combat_play` 决策，替代原来的 `break`）；保留改成 `trim_boss_buffer`——按 encounter 分层淘汰，每个 boss 拿 `max_size // n` 的配额，不足配额的余量再补给最新的。
+
+**验证**：拿真实录制局回放（从线上那份 256/256 act1 缓冲区起步），3 个迭代批次后收敛到 `42/42/42/42/42/46` 六 boss 均分。线上重启后 3 个迭代实测：`THE_KIN 54 · VANTOM 47 · CEREMONIAL_BEAST 42 · KAISER_CRAB 42 · THE_INSATIABLE 42 · KNOWLEDGE_DEMON 29`。测试 `test_a_run_contributes_every_boss_it_meets_not_just_the_first` / `test_retention_gives_every_boss_a_share_instead_of_the_most_common_one`。
+
+---
+
+## 4. ✅ `remove_bonus` 奖励的是「打开删牌界面」而不是「删掉牌」（已修复）
+
+**状态**：**已修复（2026-07-28，`rl/src/sts2rl/ppo.py`）**，随上条一起部署。
+
+**现象**：act2 boss 开局牌组中位数 24–25 张（act1 boss 时 18 张），10 个遗物、80/80 满血——**不是被磨死的，是牌组越来越肥**。而 `remove_card` 100 个迭代里被提供 28,863 次、被选择 14 次（0.05%），是又一个准结构性零（形状同当年的 `use_potion`）。本来打算直接把现成的 `--remove-bonus` 开起来。
+
+**根因**：引擎的 `remove_card` **只负责打开删牌界面**——`DoRemoveCard` 发现 `_cardSelector.HasPending` 就直接 `return DetectDecisionPoint()`，此时**一分钱没扣、一张牌没删**；gold 和牌是在随后的 `select_cards` 解决时才走的（实测 4 例录制局：`remove_card → card_select → select_cards →` 下一步 deck −1、gold −75）。而商店删牌**不是敌方强制**的选择，`DoSkipSelect` 会 `CancelPending()` 把它取消掉。
+
+原实现 `if config.remove_bonus and action.action == "remove_card"` 把奖励挂在按钮上，等于教策略：**开界面 → 取消 → 白拿 bonus、留着牌、省下 75 gold**——比真删牌严格更优。
+
+**修复**：改成挂在**实际观测到的牌组缩水**上（`_removed_a_card`：前后两个决策的 `deck_size` 下降）。无法被取消路径薅到，顺带也覆盖事件删牌。对没有牌组字段的界面（地图/部分事件）返回 None 而不是 0，否则每次切进这类界面都会误判成删了牌。测试 `test_remove_bonus_pays_for_the_removal_not_for_opening_the_screen`（完成 vs 取消两条路径）/ `test_remove_bonus_ignores_screens_that_do_not_report_the_deck`。
+
+**教训（与上面 KNOWLEDGE_DEMON 的强制选择那条同类）**：给某个**动作**发奖励之前，先确认这个动作在引擎里是否原子完成。协议里好几个动作只是「打开一个 pending 选择」（`remove_card`、事件选项、`buy_relic` 的部分路径），奖励应当挂在可观测的**状态变化**上，而不是挂在动作名上。
+
+**线上取值**：`--remove-bonus 0.1`。一局最多 ~1.6 次商店（`leave_room` 15,699/9,600 局），所以上限 ~+0.16，远低于 ±1 的终局奖励；重启后 3 个迭代 `reward_health inverted=False`（win 1.75–1.78 / loss −0.46～−0.61）。**待观察**：奖励现在落在 `select_cards` 那一步，需要靠 value function 往回传一步才能让 `remove_card` 变得有吸引力，比挂按钮上慢；盯 50–100 个迭代内 `remove_card` 选择率是否离开 0。
+
+---
+
+## 5. ✅ 战斗中 `player.deck` 不是牌组 —— Power 牌在场时会从里面消失（已修复）
+
+**状态**：**已修复（2026-07-28，`rl/src/sts2rl/ppo.py`）**。这是本次自己引入又当天抓到的回归，`remove_bonus` 只带着这个 bug 跑了约 20 个迭代（2695–2700）。
+
+**现象**：把 `remove_bonus` 改成「按观测到的牌组缩水发奖励」之后，抽查 iter 2700 的录制局，发现 10 次缩水里有 **4 次发生在战斗中的 `end_turn` 上**。
+
+**证据**（iter 2700 录制局逐步）：
+```
+step 216 combat_play Monster deck=21 action=play_card
+step 217 combat_play Monster deck=21 action=end_turn      ← 离开牌组的是 CARD.INFLAME
+step 218 combat_play Monster deck=20 action=play_card
+step 222 card_reward Monster deck=20
+step 223 map_select  Map     deck=21                       ← 战斗结束后又回来了
+```
+TAUNT / INFLAME / DOMINATE 三张都复现：**Power 牌一旦打出进入场上，就会暂时从 `player.deck` 里消失，战斗结束后回来**。
+
+**为何之前的验证没抓到**：早先只抽查了一局战斗里 `deck_size` 恒为 15，就归纳成「战斗中牌组稳定」。那一局恰好没打 Power 牌。**单局样本不足以支撑「不变量」这种结论**。
+
+**影响**：`remove_bonus=0.1` 变成「每打出一张 Power 牌 +0.1」——一个可重复、每场战斗都能领的奖励，而且方向上直接鼓励打 Power 牌。`deck_shaping_coef` 的势函数也会跟着一凹一凸（PBRS 会自己抵消，无净偏差，但是噪声）。
+
+**修复**：新增 `_in_combat(state)`（room_type ∈ Monster/Elite/Boss），三处一起挡掉：
+- `_removed_a_card` / `_upgraded_a_card`：战斗中的牌组增量一律忽略；
+- `_deck_potential`：战斗中保持上一帧的值（和 `_hp_potential` 对无 HP 界面的处理同构），势函数不再随 Power 上下场抖动。
+
+顺带修掉 `smith_bonus` 的另一个误触发：同一批录制局里 `buy_relic` 一步让升级数 +2、`select_map_node` 一步 +2（遗物/事件送的升级），也会被算成「休息点升级」。现在额外要求 `room_type == "RestSite"`。
+
+**测试**：`test_deck_deltas_are_ignored_inside_a_fight`（直接钉住 21→20→21 这个真实轨迹）/ `test_smith_bonus_only_counts_an_upgrade_made_at_a_rest_site`。
+
+**教训**：奖励挂到「状态变化」上比挂到动作名上安全（见第 4 条），但前提是**那个状态字段真的是你以为的语义**。上线前应当扫一遍真实录制局里该字段的所有变化点，而不是只看它在预期路径上对不对。
+
+---
+
+## 6. ✅ boss 重放池只有 act1 —— act2 存档被重定向去打 act1 boss（已修复）
+
+**状态**：**已修复（2026-07-29，`tools/m2_train.py`）**。这条把第 3 条的修复补完了：缓冲区确实修好了，但**重放从来没到过 act2**。
+
+**现象**：第 3 条修复上线后跑了 70+ 个迭代，act2 boss 胜率纹丝不动（KAISER_CRAB 52→58%、Knowledge Demon 71→69%、Insatiable 55→52%，全在噪声内）。当时记为「修好了但没用」。
+
+**根因**：`m2_train` 里重放阶段的遭遇池写死了 act1：
+
+```python
+boss_encounters = tuple(sorted(
+    str(row["id"]) for row in catalog
+    if row["act"] == 1 and row["category"] == "boss"      # ← 只有 act1
+    and (act_variant is None or str(row.get("act_id")) == act_variant)
+))
+```
+
+而 `curriculum.episode_config` 在 loadout 自带的遭遇不在池子里时会**重新抽样**：
+
+```python
+encounter = (loadout.encounter if loadout.encounter in stage.encounters
+             else sample_encounter(stage, seed))
+```
+
+两者相乘的结果：缓冲区里 126/256 个 act2 boss 快照（21 张牌的 act2 中期存档）被拿去打 **act1 boss**。
+
+**证据**：`boss_replay_win_rate` 六个窗口 0.886 / 0.920 / 0.900 / 0.916 / 0.921 / 0.937，与 act1 boss 的 dev 胜率（88.8–93.8%）严丝合缝，与 act2 的 50–64% 毫无关系。缓冲区本身是均衡的：`THE_KIN 46 · KNOWLEDGE_DEMON 42 · THE_INSATIABLE 42 · KAISER_CRAB 42 · VANTOM 42 · CEREMONIAL_BEAST 42`。
+
+**修复**：新增 `replay_encounters(base, buffer)` = 引导池 ∪ 缓冲区里出现过的所有遭遇。**每个迭代重算**而不是启动时算一次——缓冲区会持续发现新遭遇（act2 boss 要等某局真的走到才会进来），启动时冻结的池子照样会重定向它们。
+
+**验证**：拿线上真实缓冲区模拟 2000 次 `episode_config` 抽样，重放切片里 act2 的占比 **0% → 49%**（六个 boss 各 15–18%）。测试 `test_replay_pool_covers_the_buffer_so_act2_snapshots_are_not_redirected` / `test_replay_pool_keeps_the_bootstrap_encounters_while_the_buffer_is_empty`。
+
+**教训**：修好了「喂什么数据」还不够，得同时确认「数据喂到哪里」。第 3 条只验证了缓冲区的构成，没有验证重放实际打的是什么——而后者有独立的、写死的过滤器。一个遥测指标（`boss_replay_win_rate`）当时就已经在报警了，数值精确等于 act1 的难度，只是没人拿它和 act2 对照过。
+
+**精英尚未覆盖**：`context.boss` 是**本幕的 boss** 而不是当前战斗（Elite 房间里报 `THE_KIN_BOSS`，实际打 `BYGONE_EFFIGY`），而引擎 catalog 只有 `{act, act_id, category, id}`、没有怪物组成，无法从敌人反查遭遇 id。要采集精英存档需要一个启动探测：对每个精英 id 调一次 `start_combat`，记录敌人签名。act2 是单一区域 `HIVE`，3 boss + 3 elite（`DECIMILLIPEDE_ELITE` / `ENTOMANCER_ELITE` / `INFESTED_PRISMS_ELITE`）。

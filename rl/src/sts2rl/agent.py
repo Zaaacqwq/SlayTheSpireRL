@@ -39,6 +39,7 @@ class PolicyAgent:
         *,
         greedy: bool = False,
         generator: torch.Generator | None = None,
+        force_index: int | None = None,
     ) -> AgentStep:
         observation = normalize_state(raw_state)
         entities = {k: v.to(self.device) for k, v in encode_entity_batch([observation], self.vocab).items()}
@@ -62,10 +63,14 @@ class PolicyAgent:
                 )
                 next_hidden = None
             probs = torch.softmax(logits[0], dim=-1)
-            if greedy:
+            if force_index is not None:
+                index = int(force_index)
+            elif greedy:
                 index = int(torch.argmax(probs))
             else:
                 index = int(torch.multinomial(probs, 1, generator=generator))
+            # logp is always the *policy's* probability of the action actually taken,
+            # including a forced one, so PPO's importance ratio stays correct.
             logp = float(torch.log_softmax(logits[0], dim=-1)[index])
         return AgentStep(index, logp, float(value[0]), next_hidden)
 

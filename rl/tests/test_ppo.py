@@ -509,23 +509,12 @@ def test_hp_potential_is_concave_pays_little_for_topping_off():
     assert low > 3 * high             # but low-HP recovery pays far more
 
 
-def test_smith_and_remove_bonuses_fire_on_the_target_choice():
+def _bonus_per_step(states, config: PPOConfig) -> list[float]:
+    """Per-step reward delta between `config` and the plain config on one scripted
+    episode. Shaping is identical across both, so what is left is the bonus."""
     from sts2rl.agent import AgentStep
 
-    # SMITH offered as candidate 0 so the index-0 stub agent takes it; the state's
-    # options carry the semantic ids the bonus keys off (not the raw index).
-    rest = DecisionState({
-        "decision": "rest_site", "context": {"act": 1, "floor": 6},
-        "player": {"hp": 70, "max_hp": 80},
-        "options": [{"index": 0, "option_id": "HEAL"}, {"index": 1, "option_id": "SMITH"}],
-    }, (ActionCandidate("choose_option", {"option_index": 1}),
-        ActionCandidate("choose_option", {"option_index": 0})))
-    shop = DecisionState({
-        "decision": "shop", "context": {"act": 1, "floor": 7},
-        "player": {"hp": 70, "max_hp": 80},
-    }, (ActionCandidate("remove_card", {}), ActionCandidate("leave_room", {})))
-    death = DecisionState({"decision": "game_over", "victory": False, "act": 1, "floor": 8}, ())
-    states = [rest, shop]
+    death = DecisionState({"decision": "game_over", "victory": False, "act": 1, "floor": 9}, ())
 
     class Client:
         def __init__(self): self.i = 0
@@ -538,16 +527,290 @@ def test_smith_and_remove_bonuses_fire_on_the_target_choice():
         def act(self, *_args, **_kwargs): return AgentStep(0, -0.2, 0.4, None)
 
     off = run_episode(Client(), _run_stage(), "seed-sr", Agent(), PPOConfig())
-    on = run_episode(Client(), _run_stage(), "seed-sr", Agent(),
-                     PPOConfig(smith_bonus=0.1, remove_bonus=0.07))
-    # Floor shaping is identical across both, so the per-step difference is exactly
-    # the new bonus: step 0 chose SMITH, step 1 chose remove_card.
-    assert on.steps[0].reward - off.steps[0].reward == pytest.approx(0.1, abs=1e-6)
-    assert on.steps[1].reward - off.steps[1].reward == pytest.approx(0.07, abs=1e-6)
+    on = run_episode(Client(), _run_stage(), "seed-sr", Agent(), config)
+    return [a.reward - b.reward for a, b in zip(on.steps, off.steps)]
 
-    # HEAL must not earn the smith bonus.
+
+def _shop(floor: int, deck_size: int, *candidates) -> DecisionState:
+    return DecisionState({
+        "decision": "shop", "context": {"act": 1, "floor": floor},
+        "player": {"hp": 70, "max_hp": 80, "deck_size": deck_size},
+    }, candidates)
+
+
+def test_chose_option_maps_an_index_back_to_its_semantic_id():
+    """Rest/event choices arrive as `choose_option` with a bare index, so anything
+    that wants to name one (forced exploration's `option:SMITH`) has to resolve it
+    through the state's options rather than trust the ordering."""
     from sts2rl.ppo import _chose_option
-    heal_action = ActionCandidate("choose_option", {"option_index": 0})
-    assert not _chose_option(rest, heal_action, "SMITH")
-    smith_action = ActionCandidate("choose_option", {"option_index": 1})
-    assert _chose_option(rest, smith_action, "SMITH")
+
+    rest = DecisionState({
+        "decision": "rest_site", "context": {"act": 1, "floor": 6},
+        "player": {"hp": 70, "max_hp": 80},
+        "options": [{"index": 0, "option_id": "HEAL"}, {"index": 1, "option_id": "SMITH"}],
+    }, ())
+
+    assert not _chose_option(rest, ActionCandidate("choose_option", {"option_index": 0}), "SMITH")
+    assert _chose_option(rest, ActionCandidate("choose_option", {"option_index": 1}), "SMITH")
+    assert not _chose_option(rest, ActionCandidate("end_turn", {}), "SMITH")
+
+
+def test_remove_bonus_pays_for_the_removal_not_for_opening_the_screen():
+    """``remove_card`` only opens the removal screen: it charges nothing and
+    returns a ``card_select``. That selection is player-opened, so the engine lets
+    ``skip_select`` cancel it (RunSimulator.DoSkipSelect). Paying on the button
+    would therefore teach the cheapest way to collect the bonus — open the screen,
+    cancel, keep both the card and the 75 gold."""
+    select = DecisionState({
+        "decision": "card_select", "context": {"act": 1, "floor": 7},
+        "player": {"hp": 70, "max_hp": 80, "deck_size": 18},
+    }, (ActionCandidate("select_cards", {"indices": "3"}),
+        ActionCandidate("skip_select", {})))
+
+    completed = _bonus_per_step([
+        _shop(7, 18, ActionCandidate("remove_card", {})),
+        select,
+        _shop(7, 17, ActionCandidate("leave_room", {})),  # the card is gone
+    ], PPOConfig(remove_bonus=0.07))
+
+    # Nothing on the button; the bonus lands on the step that shrank the deck.
+    assert completed[0] == pytest.approx(0.0, abs=1e-6)
+    assert completed[1] == pytest.approx(0.07, abs=1e-6)
+
+    cancelled = _bonus_per_step([
+        _shop(7, 18, ActionCandidate("remove_card", {})),
+        select,
+        _shop(7, 18, ActionCandidate("leave_room", {})),  # skip_select kept the card
+    ], PPOConfig(remove_bonus=0.07))
+
+    assert cancelled == [pytest.approx(0.0, abs=1e-6)] * len(cancelled)
+
+
+def test_remove_bonus_ignores_screens_that_do_not_report_the_deck():
+    """A map/event screen without a deck must not read as a deck of size zero, or
+    every transition into one would pay the bonus."""
+    from sts2rl.ppo import _removed_a_card
+
+    with_deck = DecisionState({"player": {"deck_size": 18}}, ())
+    without = DecisionState({"player": {"hp": 70}}, ())
+
+    assert not _removed_a_card(with_deck, without)
+    assert not _removed_a_card(without, with_deck)
+    assert _removed_a_card(with_deck, DecisionState({"player": {"deck_size": 17}}, ()))
+    # deck_size is absent on some payloads; the card list is the fallback
+    assert _removed_a_card(with_deck, DecisionState({"player": {"deck": [{}] * 17}}, ()))
+
+
+def test_smith_bonus_pays_for_the_upgrade_not_for_pressing_smith():
+    """Choosing SMITH only opens the "which card" selection — `DoChooseOption`
+    returns as soon as `_cardSelector.HasPending` ("so Smith card selection can
+    pause"). A rest-site selection is player-opened, so `skip_select` cancels it,
+    and a cancelled Smith is worse than Heal: the rest site is spent with neither
+    the upgrade nor the heal. Paying on the button would train exactly that."""
+    def deck(upgraded: int, total: int = 3):
+        return [{"id": f"CARD.C{i}", "upgraded": i < upgraded} for i in range(total)]
+
+    rest = DecisionState({
+        "decision": "rest_site", "context": {"act": 1, "floor": 6, "room_type": "RestSite"},
+        "player": {"hp": 70, "max_hp": 80, "deck": deck(0)},
+        "options": [{"index": 0, "option_id": "SMITH"}, {"index": 1, "option_id": "HEAL"}],
+    }, (ActionCandidate("choose_option", {"option_index": 0}),))
+    select = DecisionState({
+        "decision": "card_select", "context": {"act": 1, "floor": 6, "room_type": "RestSite"},
+        "player": {"hp": 70, "max_hp": 80, "deck": deck(0)},
+    }, (ActionCandidate("select_cards", {"indices": "0"}),))
+
+    upgraded = _bonus_per_step([rest, select, DecisionState({
+        "decision": "map_select", "context": {"act": 1, "floor": 7, "room_type": "Map"},
+        "player": {"hp": 70, "max_hp": 80, "deck": deck(1)},
+    }, (ActionCandidate("select_map_node", {"col": 0, "row": 0}),))],
+        PPOConfig(smith_bonus=0.05))
+    assert upgraded[0] == pytest.approx(0.0, abs=1e-6)   # the button pays nothing
+    assert upgraded[1] == pytest.approx(0.05, abs=1e-6)  # the upgrade does
+
+    cancelled = _bonus_per_step([rest, select, DecisionState({
+        "decision": "map_select", "context": {"act": 1, "floor": 7, "room_type": "Map"},
+        "player": {"hp": 70, "max_hp": 80, "deck": deck(0)},
+    }, (ActionCandidate("select_map_node", {"col": 0, "row": 0}),))],
+        PPOConfig(smith_bonus=0.05))
+    assert cancelled == [pytest.approx(0.0, abs=1e-6)] * len(cancelled)
+
+
+def test_smith_bonus_ignores_an_already_upgraded_card_walking_in():
+    """A card reward or shop can hand over a card that is already upgraded. The
+    upgrade count rises, but no rest site was involved — the deck also grew."""
+    from sts2rl.ppo import _upgraded_a_card
+
+    rest = {"room_type": "RestSite"}
+    before = DecisionState({"context": rest,
+                            "player": {"deck": [{"upgraded": False}, {"upgraded": False}]}}, ())
+    bought = DecisionState({"context": rest,
+                            "player": {"deck": [{"upgraded": False}, {"upgraded": False},
+                                                {"upgraded": True}]}}, ())
+    smithed = DecisionState({"context": rest,
+                             "player": {"deck": [{"upgraded": True}, {"upgraded": False}]}}, ())
+
+    assert not _upgraded_a_card(before, bought)
+    assert _upgraded_a_card(before, smithed)
+
+
+def test_deck_shaping_charges_for_taking_a_card_and_pays_it_back_on_removal():
+    from sts2rl.ppo import DECK_SPAN, _deck_potential
+
+    def screen(size: int, floor: int):
+        return DecisionState({
+            "decision": "shop", "context": {"act": 1, "floor": floor},
+            "player": {"hp": 70, "max_hp": 80, "deck_size": size},
+        }, (ActionCandidate("leave_room", {}),))
+
+    coef = 0.3
+    grew = _bonus_per_step([screen(18, 5), screen(19, 6)], PPOConfig(deck_shaping_coef=coef))
+    shrank = _bonus_per_step([screen(19, 5), screen(18, 6)], PPOConfig(deck_shaping_coef=coef))
+
+    # One card is one DECK_SPAN-th of the potential, charged on the way in and
+    # refunded on the way out (up to the gamma factor on the discounted term).
+    assert grew[0] == pytest.approx(-coef / DECK_SPAN, abs=2e-3)
+    assert shrank[0] == pytest.approx(coef / DECK_SPAN, abs=2e-3)
+
+    # Bounded at both ends so the terminal Phi->0 jump can never exceed the coef,
+    # and a screen with no deck holds the previous value instead of dropping to 0.
+    assert _deck_potential(screen(4, 1), 0.5) == 0.0
+    assert _deck_potential(screen(99, 1), 0.5) == 1.0
+    assert _deck_potential(DecisionState({"player": {"hp": 70}}, ()), 0.42) == 0.42
+
+
+def test_forced_exploration_reaches_an_action_the_policy_never_samples():
+    """A bonus cannot revive a collapsed action: PPO's surrogate only has gradient
+    on actions that appear in the batch. remove_card was sampled 0 of 220 times,
+    so remove_bonus sat unreached for 70 iterations. Forcing is what puts it in."""
+    import random as _random
+    from sts2rl.ppo import _forced_index
+
+    shop = DecisionState({
+        "decision": "shop", "context": {"act": 1, "floor": 7},
+        "player": {"hp": 70, "max_hp": 80},
+    }, (ActionCandidate("buy_card", {"card_index": 0}),
+        ActionCandidate("remove_card", {}),
+        ActionCandidate("leave_room", {})))
+
+    always = PPOConfig(explore_epsilon=1.0, explore_actions=("remove_card",))
+    assert _forced_index(shop, shop.candidates, always, _random.Random(0)) == 1
+    # off by default, and off when the action is not on offer
+    assert _forced_index(shop, shop.candidates, PPOConfig(), _random.Random(0)) is None
+    no_target = PPOConfig(explore_epsilon=1.0, explore_actions=("select_bundle",))
+    assert _forced_index(shop, shop.candidates, no_target, _random.Random(0)) is None
+
+    # roughly epsilon of the opportunities, not all of them
+    sometimes = PPOConfig(explore_epsilon=0.1, explore_actions=("remove_card",))
+    rng = _random.Random(7)
+    hits = sum(_forced_index(shop, shop.candidates, sometimes, rng) is not None
+               for _ in range(4000))
+    assert 250 < hits < 550
+
+
+def test_forced_exploration_targets_one_option_id_not_every_choose_option():
+    """Rest sites and every event share `choose_option`; forcing the bare action
+    would dither the whole event tree instead of the one collapsed choice."""
+    import random as _random
+    from sts2rl.ppo import _forced_index
+
+    rest = DecisionState({
+        "decision": "rest_site", "context": {"act": 1, "floor": 6},
+        "player": {"hp": 70, "max_hp": 80},
+        "options": [{"index": 0, "option_id": "HEAL"}, {"index": 1, "option_id": "SMITH"}],
+    }, (ActionCandidate("choose_option", {"option_index": 0}),
+        ActionCandidate("choose_option", {"option_index": 1})))
+    event = DecisionState({
+        "decision": "event_choice", "context": {"act": 1, "floor": 5},
+        "player": {"hp": 70, "max_hp": 80},
+        "options": [{"index": 0, "option_id": "TAKE_GOLD"}],
+    }, (ActionCandidate("choose_option", {"option_index": 0}),))
+
+    config = PPOConfig(explore_epsilon=1.0, explore_actions=("option:SMITH",))
+    assert _forced_index(rest, rest.candidates, config, _random.Random(0)) == 1
+    assert _forced_index(event, event.candidates, config, _random.Random(0)) is None
+
+
+def test_run_episode_hands_the_forced_index_to_the_agent_and_records_it():
+    """The seam the unit tests above cannot see: `run_episode` must actually pass
+    force_index down, and the trajectory must record the forced action (with the
+    policy's own logp for it, so PPO's ratio stays exact)."""
+    from sts2rl.agent import AgentStep
+
+    buy = ActionCandidate("buy_card", {"card_index": 0})
+    remove = ActionCandidate("remove_card", {})
+    shop = DecisionState({
+        "decision": "shop", "context": {"act": 1, "floor": 5},
+        "player": {"hp": 50, "max_hp": 80, "gold": 999, "deck_size": 18},
+    }, (buy, remove))
+    win = DecisionState({"decision": "game_over", "victory": True, "act": 1, "floor": 5}, ())
+
+    seen: list[int | None] = []
+
+    class Client:
+        def reset(self, _config): return shop
+        def step(self, _action): return StepResult(win, terminated=True)
+
+    class Agent:
+        def act(self, _raw, candidates, _hidden, *, greedy=False, generator=None,
+                force_index=None):
+            seen.append(force_index)
+            # a collapsed policy: left to itself it would never pick remove_card
+            return AgentStep(0 if force_index is None else force_index, -0.2, 0.4, None)
+
+    config = PPOConfig(explore_epsilon=1.0, explore_actions=("remove_card",))
+    record = run_episode(Client(), _run_stage(), "seed-explore", Agent(), config)
+    assert seen == [1]
+    assert record.steps[0].candidates[record.steps[0].index].action == "remove_card"
+
+    # Evaluation must measure the policy, not the policy plus a dither.
+    seen.clear()
+    greedy_record = run_episode(Client(), _run_stage(), "seed-explore", Agent(), config,
+                                greedy=True)
+    assert seen == [None]
+    assert greedy_record.steps[0].candidates[greedy_record.steps[0].index].action == "buy_card"
+
+
+def test_deck_deltas_are_ignored_inside_a_fight():
+    """`player.deck` is not the deck during combat: a Power card leaves it while
+    in play and returns when the fight ends. Observed live on train iteration
+    2700 — TAUNT / INFLAME / DOMINATE each took the deck 21 -> 20 on the turn they
+    were played and back to 21 at the card reward, so remove_bonus paid out once
+    per Power played until this gate was added."""
+    from sts2rl.ppo import _deck_potential, _removed_a_card, _upgraded_a_card
+
+    def combat(size: int):
+        return DecisionState({
+            "decision": "combat_play", "context": {"act": 1, "floor": 4, "room_type": "Monster"},
+            "player": {"hp": 60, "max_hp": 80, "deck": [{"upgraded": False}] * size},
+        }, ())
+
+    def shop(size: int):
+        return DecisionState({
+            "decision": "card_select", "context": {"act": 1, "floor": 5, "room_type": "Shop"},
+            "player": {"hp": 60, "max_hp": 80, "deck": [{"upgraded": False}] * size},
+        }, ())
+
+    assert not _removed_a_card(combat(21), combat(20))  # Inflame entered play
+    assert _removed_a_card(shop(21), shop(20))          # a real removal still counts
+    # and the potential holds flat rather than dipping and recovering
+    assert _deck_potential(combat(30), 0.25) == 0.25
+
+
+def test_smith_bonus_only_counts_an_upgrade_made_at_a_rest_site():
+    """Upgrades also arrive from relics and events — a `buy_relic` step was seen
+    raising the count by 2 — and paying the rest-site bonus for those measures
+    something other than the HEAL-vs-SMITH choice it exists to move."""
+    from sts2rl.ppo import _upgraded_a_card
+
+    def screen(room: str, decision: str, upgraded: int):
+        return DecisionState({
+            "decision": decision, "context": {"act": 1, "floor": 5, "room_type": room},
+            "player": {"hp": 60, "max_hp": 80,
+                       "deck": [{"upgraded": i < upgraded} for i in range(4)]},
+        }, ())
+
+    assert _upgraded_a_card(screen("RestSite", "card_select", 0),
+                            screen("RestSite", "card_select", 1))
+    assert not _upgraded_a_card(screen("Shop", "shop", 3), screen("Shop", "shop", 5))
+    assert not _upgraded_a_card(screen("Map", "map_select", 1), screen("Map", "map_select", 3))

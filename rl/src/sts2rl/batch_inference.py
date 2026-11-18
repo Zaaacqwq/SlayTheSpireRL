@@ -29,6 +29,7 @@ class _Request:
     candidates: Sequence[ActionCandidate]
     hidden: tuple[float, ...] | None
     greedy: bool
+    force_index: int | None = None
     done: threading.Event = field(default_factory=threading.Event)
     result: AgentStep | None = None
 
@@ -69,14 +70,15 @@ class BatchedAgent:
 
     def act(self, raw_state: Mapping[str, Any], candidates: Sequence[ActionCandidate],
             hidden: tuple[float, ...] | None = None, *, greedy: bool = False,
-            generator: torch.Generator | None = None) -> AgentStep:
+            generator: torch.Generator | None = None,
+            force_index: int | None = None) -> AgentStep:
         # A dead server used to strand every caller on an Event that would never be
         # set: the batch in flight got woken, and the eleven workers that queued
         # behind it blocked forever. Twice today (a NaN weight, then a CUDA context
         # invalidated by a driver update mid-run) that turned a crashed thread into
         # a silently hung trainer holding twelve idle engines.
         self._raise_if_dead()
-        request = _Request(normalize_state(raw_state), candidates, hidden, greedy)
+        request = _Request(normalize_state(raw_state), candidates, hidden, greedy, force_index)
         self._queue.put(request)
         while not request.done.wait(timeout=0.5):
             self._raise_if_dead()
@@ -176,7 +178,9 @@ class BatchedAgent:
         for row, request in enumerate(batch):
             count = len(request.candidates)
             row_probs = probs[row, :count]
-            if request.greedy:
+            if request.force_index is not None:
+                index = int(request.force_index)
+            elif request.greedy:
                 index = int(torch.argmax(row_probs))
             else:
                 index = int(torch.multinomial(row_probs, 1))

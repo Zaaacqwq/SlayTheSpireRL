@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Activity, BarChart3, BookOpen, GitCompare, Languages, LoaderCircle, Pause, Play,
-  Radio, RefreshCw, Route, Stethoscope,
+  Radio, RefreshCw, Route, Stethoscope, Swords,
 } from 'lucide-react'
 import { fetchRuns, fetchTrainingControl, pauseTraining, startTraining } from './api'
 import type { Episode, MetricRow, Run, TrainingControlStatus } from './types'
 import { Overview } from './views/Overview'
 import { Diagnostics } from './views/Diagnostics'
+import { Encounters } from './views/Encounters'
 import { Training } from './views/Training'
 import { EMPTY_FILTERS, Episodes, type EpisodeFilters } from './views/Episodes'
 import { Replay, type ReplayTarget } from './views/Replay'
@@ -16,11 +17,12 @@ import { AlertBanner, StatusPill, ThemeToggle } from './components/ui'
 import { num, pct } from './format'
 import { useI18n } from './i18n'
 
-type Tab = 'overview' | 'diagnostics' | 'training' | 'episodes' | 'replay' | 'live' | 'compare'
+type Tab = 'overview' | 'diagnostics' | 'encounters' | 'training' | 'episodes' | 'replay' | 'live' | 'compare'
 
 const NAV: { tab: Tab; icon: typeof BarChart3 }[] = [
   { tab: 'overview', icon: BarChart3 },
   { tab: 'diagnostics', icon: Stethoscope },
+  { tab: 'encounters', icon: Swords },
   { tab: 'training', icon: Activity },
   { tab: 'episodes', icon: BookOpen },
   { tab: 'replay', icon: Route },
@@ -244,6 +246,8 @@ export default function App() {
             <Overview run={run} onInspectIteration={inspectIteration} />
           ) : tab === 'diagnostics' ? (
             <Diagnostics run={run} />
+          ) : tab === 'encounters' ? (
+            <Encounters run={run} />
           ) : tab === 'training' ? (
             <Training run={run} />
           ) : tab === 'episodes' ? (

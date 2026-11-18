@@ -18,11 +18,35 @@ import { useStageFilter } from '../useStageFilter'
  * Both are one glance away here. */
 
 const ACTION_PREFIX = 'action_'
-const TOP_ACTIONS = 6
+
+/* Which decision each action answers (rl/src/sts2rl/protocol.py legal_actions).
+ * Sharing one denominator across all of them makes the rare-by-construction
+ * actions unreadable: a run is offered remove_card a handful of times against
+ * thousands of play_card decisions, so it sits at ~0% whether the policy loves
+ * it or cannot reach it. Normalising inside the phase compares each action
+ * against the alternatives it actually competed with. */
+type PhaseKey = 'combat' | 'map' | 'reward' | 'choice' | 'select' | 'shop' | 'other'
+
+const ACTION_PHASE: Record<string, PhaseKey> = {
+  play_card: 'combat', use_potion: 'combat', end_turn: 'combat',
+  select_map_node: 'map',
+  select_card_reward: 'reward', skip_card_reward: 'reward',
+  choose_option: 'choice',
+  select_cards: 'select', skip_select: 'select', select_bundle: 'select',
+  buy_card: 'shop', buy_relic: 'shop', buy_potion: 'shop',
+  remove_card: 'shop', leave_room: 'shop',
+}
+
+// 'other' is the escape hatch for an action the protocol grows later: it shows up
+// in its own bucket instead of silently vanishing from the chart.
+const PHASE_ORDER: PhaseKey[] = ['combat', 'map', 'reward', 'choice', 'select', 'shop', 'other']
+
+const phaseOf = (key: string): PhaseKey => ACTION_PHASE[key.slice(ACTION_PREFIX.length)] ?? 'other'
 
 export function Diagnostics({ run }: { run: Run }) {
   const { t } = useI18n()
   const [allMetrics, setMetrics] = useState<MetricRow[]>([])
+  const [phase, setPhase] = useState<PhaseKey | ''>('')
 
   useEffect(() => {
     void fetchMetrics(run.name).then(data => setMetrics(data.rows)).catch(() => setMetrics([]))
@@ -38,31 +62,32 @@ export function Diagnostics({ run }: { run: Run }) {
     [metrics],
   )
 
-  // Every action type present, ranked by peak share, each with its own colour.
-  // Many are structurally tiny, so charting all 14 at once is unreadable — the
-  // legend below is a click filter (see hiddenActions) that starts with just the
-  // busiest TOP_ACTIONS shown and lets you toggle any line in or out.
-  const actionSeries: SeriesSpec[] = useMemo(() => {
-    const peak = new Map<string, number>()
+  const actionKeys = useMemo(() => {
+    const keys = new Set<string>()
     for (const row of metrics) {
       for (const [key, value] of Object.entries(row)) {
-        if (key.startsWith(ACTION_PREFIX) && typeof value === 'number') {
-          peak.set(key, Math.max(peak.get(key) ?? 0, value))
-        }
+        if (key.startsWith(ACTION_PREFIX) && typeof value === 'number') keys.add(key)
       }
     }
-    return [...peak.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .map(([key], i) => ({ key, name: key.slice(ACTION_PREFIX.length), color: SERIES_ORDER[i % SERIES_ORDER.length] }))
+    return [...keys]
   }, [metrics])
 
-  // The chart's legend is itself the filter now (see MetricChart); we only seed
-  // which lines start hidden — the tail past the busiest TOP_ACTIONS, so the
-  // default view stays legible while every action stays one click away.
-  const actionDefaultHidden = useMemo(
-    () => actionSeries.slice(TOP_ACTIONS).map(spec => spec.key),
-    [actionSeries],
+  const phases = useMemo(
+    () => PHASE_ORDER.filter(name => actionKeys.some(key => phaseOf(key) === name)),
+    [actionKeys],
   )
+  // A combat stage only ever reaches one phase, so the overview would be a flat
+  // 100% line. Drop straight into that phase's internal mix instead.
+  const shown = phases.length > 1 ? phase : phases[0] ?? ''
+  const mix = useMemo(
+    () => (shown ? phaseMix(metrics, actionKeys, shown) : overviewMix(metrics, actionKeys, phases)),
+    [metrics, actionKeys, shown, phases],
+  )
+  const mixSeries: SeriesSpec[] = mix.series.map((spec, i) => ({
+    ...spec,
+    name: shown ? spec.name : t(`phase.${spec.name}`),
+    color: SERIES_ORDER[i % SERIES_ORDER.length],
+  }))
 
   const reach = useMemo(() => reachability(metrics), [metrics])
 
@@ -119,7 +144,7 @@ export function Diagnostics({ run }: { run: Run }) {
       ]} />
     </Panel>
 
-    <Panel icon={<Crosshair />} title={t('diag.actionMix')} tip={t('tip.actionMix')}>
+    <Panel icon={<Crosshair />} title={t('diag.actionMix')} tip={t('tip.actionPhase')}>
       {reach.length > 0 && (
         <div className="reach-row">
           {reach.map(item => (
@@ -129,10 +154,25 @@ export function Diagnostics({ run }: { run: Run }) {
           ))}
         </div>
       )}
-      {actionSeries.length
-        ? <MetricChart rows={metrics} segments={segments} height={220} percent series={actionSeries}
-                       defaultHidden={actionDefaultHidden} />
-        : <Empty text={t('common.noData')} />}
+      {phases.length > 1 && (
+        <div className="stage-picker" role="tablist">
+          <button role="tab" aria-selected={phase === ''} className={phase === '' ? 'active' : ''}
+                  onClick={() => setPhase('')}>{t('phase.all')}</button>
+          {phases.map(name => (
+            <button key={name} role="tab" aria-selected={phase === name}
+                    className={phase === name ? 'active' : ''}
+                    onClick={() => setPhase(name)}>{t(`phase.${name}`)}</button>
+          ))}
+        </div>
+      )}
+      {mixSeries.length ? <>
+        <MetricChart rows={mix.rows} segments={segments} height={220} percent series={mixSeries} />
+        <div className="funnel-note">
+          {shown
+            ? t('diag.phaseShareNote', { phase: t(`phase.${shown}`), share: pct(mix.share) })
+            : t('diag.phaseOverviewNote')}
+        </div>
+      </> : <Empty text={t('common.noData')} />}
     </Panel>
 
     <Panel icon={<Swords />} title={t('diag.bossFunnel')} tip={t('tip.bossFunnel')}>
@@ -164,6 +204,62 @@ export function Diagnostics({ run }: { run: Run }) {
       </>}
     </Panel>
   </div>
+}
+
+interface Mix {
+  rows: MetricRow[]
+  /** `name` carries the phase key (overview) or the bare action name; the caller
+   *  localises it and assigns the palette slot. */
+  series: { key: string; name: string }[]
+  share?: number
+}
+
+/** How the policy's decision time splits across phases — combat vs shop vs map.
+ *  Shares still sum to 1 across the whole chart, so this is the outer ring. */
+function overviewMix(metrics: MetricRow[], keys: string[], phases: PhaseKey[]): Mix {
+  const rows = metrics.map(row => {
+    const out: MetricRow = { iteration: row.iteration, stage: row.stage }
+    for (const name of phases) {
+      let total = 0
+      let seen = false
+      for (const key of keys) {
+        const value = row[key]
+        if (phaseOf(key) === name && typeof value === 'number') { total += value; seen = true }
+      }
+      if (seen) out[`phase_${name}`] = total
+    }
+    return out
+  })
+  return { rows, series: phases.map(name => ({ key: `phase_${name}`, name })) }
+}
+
+/** One phase's internal mix: each action as a share of the decisions made *in
+ *  that phase*. An iteration that never entered the phase contributes nothing
+ *  rather than a fake zero, so the shop curve does not crater on a combat stage. */
+function phaseMix(metrics: MetricRow[], keys: string[], phase: PhaseKey): Mix {
+  const inPhase = keys.filter(key => phaseOf(key) === phase)
+  let lastShare: number | undefined
+  const rows = metrics.map(row => {
+    const out: MetricRow = { iteration: row.iteration, stage: row.stage }
+    const total = inPhase.reduce(
+      (sum, key) => sum + (typeof row[key] === 'number' ? (row[key] as number) : 0), 0)
+    if (total > 0) {
+      for (const key of inPhase) {
+        const value = row[key]
+        if (typeof value === 'number') out[key] = value / total
+      }
+      lastShare = total
+    }
+    return out
+  })
+  const peak = new Map<string, number>()
+  for (const row of rows) {
+    for (const key of inPhase) peak.set(key, Math.max(peak.get(key) ?? 0, Number(row[key]) || 0))
+  }
+  const series = [...inPhase]
+    .sort((a, b) => (peak.get(b) ?? 0) - (peak.get(a) ?? 0))
+    .map(key => ({ key, name: key.slice(ACTION_PREFIX.length) }))
+  return { rows, series, share: lastShare }
 }
 
 interface Reach { action: string; state: 'ok' | 'rare' | 'zero'; share: number }

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import { Diagnostics } from './Diagnostics'
 import { I18nProvider } from '../i18n'
@@ -46,17 +46,41 @@ test('stays quiet when winning pays more', async () => {
   expect(screen.queryByRole('alert')).toBeNull()
 })
 
-test('charts every action type the run reports, so a structural zero is visible', async () => {
-  mockMetrics([
-    {
-      iteration: 0, stage: 'act1', win_return: 1, loss_return: -1, inverted: 0,
-      action_play_card: 0.55, action_end_turn: 0.25, action_use_potion: 0,
-    },
-  ])
+const MIX_ROW: MetricRow = {
+  iteration: 0, stage: 'act1', win_return: 1, loss_return: -1, inverted: 0,
+  action_play_card: 0.55, action_end_turn: 0.25, action_use_potion: 0,
+  action_select_map_node: 0.15, action_buy_card: 0.004, action_remove_card: 0.001,
+}
+
+test('groups decisions by phase instead of charting 14 actions on one axis', async () => {
+  mockMetrics([MIX_ROW])
   view()
-  // the legend names each series; a potion series pinned at zero is the tell
-  expect(await screen.findByText('use_potion')).toBeInTheDocument()
+  // the default view is the outer ring: where the decisions go, not which card
+  expect(await screen.findByRole('tab', { name: '战斗' })).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: '商店' })).toBeInTheDocument()
+  // and the per-action series are not on the axis until a phase is picked
+  expect(screen.queryByText('play_card')).toBeNull()
+})
+
+test('normalising inside a phase makes a structural zero visible', async () => {
+  // 0.4% of all decisions is unreadable on a shared axis; against the other
+  // combat actions, a potion series pinned at zero is the tell (the v1-v5 bug)
+  mockMetrics([MIX_ROW])
+  view()
+  fireEvent.click(await screen.findByRole('tab', { name: '战斗' }))
+  expect(screen.getByText('use_potion')).toBeInTheDocument()
   expect(screen.getByText('play_card')).toBeInTheDocument()
+  // map/shop actions answer a different question and stay out of this chart
+  expect(screen.queryByText('select_map_node')).toBeNull()
+})
+
+test('reports what fraction of all decisions the selected phase actually is', async () => {
+  mockMetrics([MIX_ROW])
+  view()
+  fireEvent.click(await screen.findByRole('tab', { name: '商店' }))
+  // buy_card + remove_card = 0.5% of everything, kept visible next to the
+  // within-shop mix so normalising cannot make a rare phase look busy
+  expect(screen.getByText(/0.5%/)).toBeInTheDocument()
 })
 
 test('flags an action offered but never once chosen as a structural zero', async () => {

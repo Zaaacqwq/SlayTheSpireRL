@@ -85,27 +85,77 @@ def _loadout_from_dict(row: dict) -> Loadout:
     )
 
 
+def trim_boss_buffer(buffer: list[Loadout], max_size: int) -> None:
+    """Evict oldest-first *within* each encounter so every boss keeps a share.
+
+    A flat rolling window is captured by whichever boss the runs meet most often,
+    and that is always act 1's: every run that reaches the act-2 boss walked past
+    an act-1 boss to get there. Observed on m2_v7_acts12_hpshape at iteration
+    2578: 256/256 buffered loadouts were VANTOM / CEREMONIAL_BEAST / THE_KIN, so
+    ``boss_mix`` spent 15% of every iteration re-teaching fights the policy
+    already won ~95% of while the act-2 bosses it loses (58-67%) got none of it.
+    """
+    if len(buffer) <= max_size:
+        return
+    by_encounter: dict[str | None, list[int]] = {}
+    for index, loadout in enumerate(buffer):
+        by_encounter.setdefault(loadout.encounter, []).append(index)
+    quota = max(1, max_size // len(by_encounter))
+    keep: set[int] = set()
+    for indices in by_encounter.values():
+        keep.update(indices[-quota:])
+    # Encounters holding fewer than their quota leave slack; hand it to the newest
+    # loadouts overall rather than letting the buffer run under capacity.
+    for index in range(len(buffer) - 1, -1, -1):
+        if len(keep) >= max_size:
+            break
+        keep.add(index)
+    buffer[:] = [loadout for index, loadout in enumerate(buffer) if index in keep]
+
+
+def replay_encounters(base: Sequence[str], buffer: Sequence[Loadout]) -> tuple[str, ...]:
+    """The encounter pool the replay slice may start, widened to cover the buffer.
+
+    ``curriculum.episode_config`` keeps a loadout's own encounter only when the
+    stage offers it and otherwise re-samples from the pool, so a pool built from
+    act 1 alone silently redirects every act-2 snapshot into an act-1 boss fight.
+    Measured on m2_v7_acts12_hpshape at iteration 3053: ``trim_boss_buffer`` had
+    the buffer evenly spread over all six bosses (42-46 each), yet
+    ``boss_replay_win_rate`` tracked act 1's dev win rate (0.89-0.94) rather than
+    act 2's (0.50-0.64) -- 126/256 loadouts were fighting the wrong act, which is
+    why balancing the buffer alone moved nothing. The union keeps the static
+    bootstrap pool while making every buffered snapshot replayable as itself.
+    """
+    return tuple(sorted({*base, *(row.encounter for row in buffer if row.encounter)}))
+
+
 def update_on_policy_boss_buffer(buffer: list[Loadout], records, max_size: int) -> int:
-    """Append one start-of-boss snapshot per run and retain a rolling window."""
+    """Append one start-of-boss snapshot per boss per run, stratified by encounter.
+
+    Per *boss*, not per run: stopping at the first boss a run meets can only ever
+    collect act 1 (see ``trim_boss_buffer``). The per-encounter guard still keeps
+    one snapshot per fight — round 1 spans several ``combat_play`` decisions and
+    each of them satisfies ``boss_loadout_from_state``.
+    """
     added = 0
     seen = {
         (row.encounter, row.hp, row.max_hp, row.deck, row.relics, row.potions)
         for row in buffer
     }
     for record in records:
+        captured: set[str | None] = set()
         for step in record.steps:
             loadout = boss_loadout_from_state(step.raw_state)
-            if loadout is None:
+            if loadout is None or loadout.encounter in captured:
                 continue
+            captured.add(loadout.encounter)
             key = (loadout.encounter, loadout.hp, loadout.max_hp,
                    loadout.deck, loadout.relics, loadout.potions)
             if key not in seen:
                 buffer.append(loadout)
                 seen.add(key)
                 added += 1
-            break
-    if len(buffer) > max_size:
-        del buffer[:-max_size]
+    trim_boss_buffer(buffer, max_size)
     return added
 
 
@@ -257,15 +307,35 @@ def main() -> int:
                              "shaping, so it densifies the credit for chip damage without "
                              "changing the optimum. Aimed at act-2 attrition; ~0.3 keeps it "
                              "below the +/-1 terminal and +1 act-clear bonus.")
+    parser.add_argument("--deck-shaping-coef", type=float, default=None,
+                        help="Potential-based deck-bloat shaping (0 disables, the default). "
+                             "Phi rises with deck size over [10, 30] and is subtracted, so "
+                             "taking a card costs ~coef/20 and shedding one pays it back; "
+                             "policy-invariant like the floor and HP shapers. Unlike the two "
+                             "bonuses below this needs no collapsed action to come back — it "
+                             "acts on skip_card_reward, which is still sampled ~26%. ~0.3.")
     parser.add_argument("--smith-bonus", type=float, default=None,
-                        help="Small direct reward for upgrading a card at a rest site "
-                             "(choosing SMITH over HEAL). Breaks the always-HEAL collapse; "
-                             "composes with concave HP shaping (heal still wins when hurt). "
-                             "Non-potential — keep small, e.g. ~0.05.")
+                        help="Small direct reward for upgrading a card at a rest site. Paid "
+                             "on the observed upgrade, NOT on choosing SMITH — pressing SMITH "
+                             "only opens a cancellable card selection. Breaks the always-HEAL "
+                             "collapse; composes with concave HP shaping (heal still wins when "
+                             "hurt). Non-potential — keep small, e.g. ~0.05. Needs "
+                             "--explore-epsilon to be reachable at all once collapsed.")
     parser.add_argument("--remove-bonus", type=float, default=None,
-                        help="Small direct reward for removing a card at a shop. Breaks the "
-                             "never-remove collapse (deck-thinning). Blanket (the deck is not "
-                             "in state, so it cannot target starter cards); keep small, ~0.05.")
+                        help="Small direct reward for removing a card at a shop, paid on the "
+                             "observed deck shrink rather than on the (cancellable) "
+                             "remove_card action. Blanket — it cannot target starter cards. "
+                             "Keep small, ~0.05-0.1. Needs --explore-epsilon to be reachable.")
+    parser.add_argument("--explore-epsilon", type=float, default=None,
+                        help="Probability of forcing one of --explore-actions when a decision "
+                             "offers it. A reward bonus cannot revive an action the policy "
+                             "never samples (PPO has gradient only on sampled actions), and "
+                             "remove_card/SMITH are at a hard zero; this is what puts them "
+                             "back in the batch. Off during evaluation. ~0.05.")
+    parser.add_argument("--explore-actions", default=None,
+                        help="Comma-separated action names --explore-epsilon may force, "
+                             "e.g. 'remove_card'. Rest-site SMITH is a choose_option, so it "
+                             "is named 'option:SMITH'.")
     parser.add_argument("--init-seed", type=int, default=0)
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--minibatch-size", type=int, default=256)
@@ -348,6 +418,14 @@ def main() -> int:
         reward_overrides["smith_bonus"] = args.smith_bonus
     if args.remove_bonus is not None:
         reward_overrides["remove_bonus"] = args.remove_bonus
+    if args.deck_shaping_coef is not None:
+        reward_overrides["deck_shaping_coef"] = args.deck_shaping_coef
+    if args.explore_epsilon is not None:
+        reward_overrides["explore_epsilon"] = args.explore_epsilon
+    if args.explore_actions is not None:
+        reward_overrides["explore_actions"] = tuple(
+            name.strip() for name in args.explore_actions.split(",") if name.strip()
+        )
     config = PPOConfig(
         learning_rate=args.lr,
         episodes_per_iteration=args.episodes_per_iteration,
@@ -406,7 +484,10 @@ def main() -> int:
         boss_loadouts = tuple(_loadout_from_dict(row) for row in harvested["loadouts"])
     stages = ironclad_stages(catalog, boss_loadouts, act_variant=act_variant)
     boss_stage = next((s for s in stages if s.name == "boss_combat"), None)
-    boss_encounters = tuple(sorted(
+    # Bootstrap pool only: act 1 is the region the engine hands out at floor 1, so
+    # it is all that is known before any snapshot is harvested. Once the buffer
+    # fills, replay_encounters widens this to whatever the policy actually met.
+    bootstrap_boss_encounters = tuple(sorted(
         str(row["id"]) for row in catalog
         if row["act"] == 1 and row["category"] == "boss"
         and (act_variant is None or str(row.get("act_id")) == act_variant)
@@ -414,6 +495,9 @@ def main() -> int:
     print(json.dumps({
         "act_variant": act_variant,
         "encounters": {s.name: len(s.encounters) for s in stages if s.is_combat},
+        "boss_replay_pool": list(
+            replay_encounters(bootstrap_boss_encounters, on_policy_boss_loadouts)
+        ),
         "boss_mix": args.boss_mix,
         "boss_replay_source": (
             "on_policy" if args.on_policy_boss_replay else "legacy_static"
@@ -481,8 +565,12 @@ def main() -> int:
             active_boss_stage = boss_stage
             if (args.on_policy_boss_replay
                     and len(on_policy_boss_loadouts) >= args.boss_replay_min_loadouts):
+                # Recomputed per iteration, not once at startup: the buffer keeps
+                # discovering encounters (an act-2 boss only enters it after a run
+                # reaches one) and a pool frozen before that redirects them.
                 active_boss_stage = CurriculumStage(
-                    "boss_combat", boss_encounters,
+                    "boss_combat",
+                    replay_encounters(bootstrap_boss_encounters, on_policy_boss_loadouts),
                     loadouts=tuple(on_policy_boss_loadouts),
                 )
             boss_seeds: list[str] = []

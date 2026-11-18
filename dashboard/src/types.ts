@@ -83,6 +83,41 @@ export interface Episode {
   deck_size?: number | null
 }
 
+export type EncounterKind = 'monster' | 'elite' | 'boss'
+
+/** One fight — a spawn group ("Bowlbug (Egg) + Twig Slime x2") or, in the
+ *  per-enemy view, one creature aggregated over every group it appears in. */
+export interface EncounterRow {
+  key: string
+  label: string
+  kind: EncounterKind
+  fights: number
+  wins: number
+  losses: number
+  unresolved: number
+  win_rate: number | null
+  avg_hp_lost: number | null
+  avg_hp_in: number | null
+  acts: number[]
+}
+
+export interface EncounterStats {
+  run: string
+  encounters: EncounterRow[]
+  enemies: EncounterRow[]
+  by_kind: Record<EncounterKind, EncounterRow[]>
+  scope: {
+    split: string
+    episodes: number
+    fights: number
+    iteration_from: number | null
+    iteration_to: number | null
+  }
+  // The backend parses recorded episodes in a background thread, so a large run
+  // answers immediately with its newest episodes and fills in behind you.
+  progress: { scanned: number; total: number; building: boolean; error: string | null }
+}
+
 export interface TimelineItem {
   iteration: number | null
   split: string

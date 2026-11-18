@@ -3,6 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 import json
 import threading
+import time
 from pathlib import Path
 from urllib.request import urlopen
 
@@ -319,6 +320,52 @@ def test_timeline_groups_episodes_by_iteration_and_split(tmp_path: Path) -> None
     assert timeline["items"][0]["win_rate"] == 0.0
     assert timeline["items"][1]["win_rate"] == 1.0
     assert timeline["items"][0]["split"] == "replay"
+
+
+def test_encounters_endpoint_scores_fights_by_class(tmp_path: Path) -> None:
+    root = tmp_path / "runs"
+    run = root / "fight_run"
+    entries = []
+    for index, (room, name, outcome) in enumerate((
+        ("Monster", "Nibbit", True), ("Elite", "Byrdonis", True), ("Elite", "Byrdonis", False),
+    )):
+        relative = f"episodes/dev/00001_seed-{index}.parquet"
+        make_parquet(run / relative, [{
+            "episode_id": f"seed-{index}", "step": 0,
+            "state": {
+                "decision": "combat_play",
+                "context": {"act": 1, "floor": 4.0, "room_type": room},
+                "player": {"name": "Ironclad", "hp": 50, "max_hp": 80},
+                "enemies": [{"index": 0, "name": name, "hp": 30, "max_hp": 30}],
+            },
+            "reward": 0.0, "terminated": True, "outcome": outcome,
+        }])
+        entries.append({"episode_id": f"seed-{index}", "path": relative, "iteration": 1,
+                        "stage": "act1", "split": "dev", "outcome": outcome, "steps": 1,
+                        "error": None})
+    write_jsonl(run / "episodes" / "manifest.jsonl", entries)
+
+    server = DashboardServer(("127.0.0.1", 0), DashboardHandler, root)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.server_address
+        # The scan runs in the background, so poll until it reports it is done.
+        for _ in range(100):
+            with urlopen(f"http://{host}:{port}/api/runs/fight_run/encounters?split=dev") as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            if not payload["progress"]["building"] and payload["progress"]["scanned"] == 3:
+                break
+            time.sleep(0.05)
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert payload["run"] == "fight_run"
+    assert [(item["label"], item["win_rate"]) for item in payload["by_kind"]["elite"]] == [("Byrdonis", 0.5)]
+    assert [(item["label"], item["win_rate"]) for item in payload["by_kind"]["monster"]] == [("Nibbit", 1.0)]
+    assert payload["by_kind"]["boss"] == []
 
 
 def test_episode_detail_disambiguates_re_recorded_seeds(tmp_path: Path) -> None:

@@ -9,6 +9,7 @@ replayed as inputs during updates (no backpropagation through time).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import random
 import threading
 from typing import Any, Callable, Mapping, Sequence
 
@@ -68,10 +69,38 @@ class PPOConfig:
     # The concave HP potential g(x)=1-(1-x)^2 (see _hp_potential) also stops it
     # paying for a wasteful high-HP rest heal.
     hp_shaping_coef: float = 0.0
+    # Potential-based deck-bloat shaping (0 disables), same construction as the two
+    # above (Phi forced to 0 at every terminal, so policy-invariant). Phi rises with
+    # deck size, and the reward subtracts it, so acquiring a card costs a little and
+    # shedding one pays a little.
+    #
+    # This is the lever that does not need a collapsed action to come back: the deck
+    # grows 18 -> 25 between the act-1 and act-2 boss because 74% of card rewards are
+    # taken, and skip_card_reward is still sampled ~26% of the time — unlike
+    # remove_card and SMITH, which are at a hard zero (0 of 220 and 0 of 251 sampled
+    # offers), where no reward can reach them at all. Gamma 0.999 over ~300 steps is
+    # what makes "this card diluted the deck" unlearnable from the terminal alone;
+    # this makes it local.
+    deck_shaping_coef: float = 0.0
+    # Forced exploration for actions the policy has collapsed to a hard zero on.
+    # A reward bonus cannot revive one: PPO's clipped surrogate only has gradient on
+    # actions that appear in the batch, and softmax normalisation actively pushes
+    # the rest down whenever a sampled action has positive advantage — a ratchet.
+    # Measured on m2_v7_acts12_hpshape: remove_card 0 of 220 sampled offers and
+    # SMITH 0 of 251, so remove_bonus=0.1 sat unreached for 70 iterations (5
+    # selections in 22,280 offers). With probability ``explore_epsilon``, a decision
+    # offering one of ``explore_actions`` takes it, which is the only way the bonus
+    # enters a trajectory at all. The batch becomes mildly off-policy — logp is still
+    # the policy's own probability of the forced action, so the ratio is exact, but
+    # the state distribution is not — which is the usual epsilon-exploration trade.
+    explore_epsilon: float = 0.0
+    explore_actions: tuple[str, ...] = ()
     # Small direct (non-potential) bonuses for two strategic decisions the policy
     # collapsed to a structural zero on: upgrading a card at a rest site (chose
     # SMITH over HEAL) and removing a card at a shop. 0 disables. Non-potential so
     # they do shift the optimum by design; keep them well under the +/-1 terminal.
+    # remove_bonus pays on the observed deck shrink, not on the ``remove_card``
+    # action, which is cancellable — see _removed_a_card.
     smith_bonus: float = 0.0
     remove_bonus: float = 0.0
     max_grad_norm: float = 0.5
@@ -184,6 +213,108 @@ def _hp_potential(state: DecisionState, previous: float) -> float:
     return 1.0 - (1.0 - x) ** 2
 
 
+def _deck_size(state: DecisionState) -> int | None:
+    """Size of the master deck, or None on a screen that does not carry it.
+
+    Stable across a whole combat (it is the deck, not the draw pile), so a drop
+    between two consecutive decisions is a real card leaving the deck.
+    """
+    player = state.raw.get("player") or {}
+    size = player.get("deck_size")
+    if isinstance(size, int):
+        return size
+    deck = player.get("deck")
+    return len(deck) if isinstance(deck, list) else None
+
+
+# The Ironclad starts on 10 cards; a bloated act-2 deck is ~30. Normalising the
+# potential onto [0, 1] over that span keeps the terminal Phi->0 jump bounded by
+# the coefficient, exactly like the HP potential, instead of scaling with a raw
+# card count that would spike the last transition of every episode.
+DECK_BASE = 10
+DECK_SPAN = 20
+
+
+COMBAT_ROOMS = ("Monster", "Elite", "Boss")
+
+
+def _in_combat(state: DecisionState) -> bool:
+    """Inside a fight, where ``player.deck`` is not the deck.
+
+    A Power card leaves ``player.deck`` for as long as it is in play and returns
+    when the combat ends — observed on TAUNT / INFLAME / DOMINATE, deck 21 -> 20
+    on the turn the Power was played and back to 21 at the card reward. So every
+    deck-delta reading taken during a fight is an artefact of that, not a deck
+    edit: it made ``remove_bonus`` pay out once per Power played.
+    """
+    return str(((state.raw.get("context") or {}).get("room_type") or "")) in COMBAT_ROOMS
+
+
+def _deck_potential(state: DecisionState, previous: float) -> float:
+    """Normalised deck bloat in [0, 1]. Screens without a deck — and every screen
+    inside a fight — hold the previous value so the potential stays flat across
+    them rather than swinging on a Power card entering play."""
+    size = _deck_size(state)
+    if size is None or _in_combat(state):
+        return previous
+    return max(0.0, min(1.0, (size - DECK_BASE) / DECK_SPAN))
+
+
+def _upgrade_count(state: DecisionState) -> int | None:
+    deck = (state.raw.get("player") or {}).get("deck")
+    if not isinstance(deck, list):
+        return None
+    return sum(1 for card in deck if isinstance(card, dict) and card.get("upgraded"))
+
+
+def _upgraded_a_card(state: DecisionState, result: DecisionState) -> bool:
+    """Whether this transition upgraded a card already in the deck.
+
+    Not keyed on choosing SMITH, for the same reason ``remove_bonus`` is not keyed
+    on ``remove_card``: the rest-site handler runs
+    ``RestSiteSynchronizer.ChooseLocalOption`` on a background thread and returns
+    the moment ``_cardSelector.HasPending`` (its own comment: "so Smith card
+    selection can pause"), so pressing SMITH has upgraded nothing yet. That
+    selection is player-opened, so ``skip_select`` cancels it — and a cancelled
+    Smith is *worse* than Heal, because the rest site is spent with neither the
+    upgrade nor the heal. Paying on the button would have trained exactly that.
+
+    Restricted to a rest site because that is the choice this bonus exists to
+    revive, and upgrades arrive from elsewhere too: a relic purchase was seen
+    raising the count by 2 in one step, and an event by 2 more. The deck size must
+    also hold steady, so acquiring an already-upgraded card does not count.
+    """
+    if _in_combat(state) or str((state.raw.get("context") or {}).get("room_type")) != "RestSite":
+        return False
+    before, after = _upgrade_count(state), _upgrade_count(result)
+    if before is None or after is None or after <= before:
+        return False
+    size_before, size_after = _deck_size(state), _deck_size(result)
+    return size_before is not None and size_before == size_after
+
+
+def _removed_a_card(state: DecisionState, result: DecisionState) -> bool:
+    """Whether this transition actually shrank the deck.
+
+    Deliberately *not* keyed on the ``remove_card`` action. The engine's
+    ``remove_card`` only opens the removal screen — it returns a ``card_select``
+    and charges nothing; the gold leaves and the card goes only when the
+    selection resolves. A shop removal is not enemy-forced, so ``skip_select``
+    cancels it (RunSimulator.DoSkipSelect). Paying on the button would therefore
+    have taught the cheapest way to collect it: open the screen, cancel, keep the
+    75 gold and the card. Paying on the observed deck drop cannot be gamed, and
+    it also picks up removals that arrive through events, which are the same kind
+    of deliberate deck-thinning.
+
+    Never inside a fight: a Power card in play leaves ``player.deck``, so an
+    in-combat reading paid this bonus for playing Inflame (see ``_in_combat``).
+    """
+    if _in_combat(state):
+        return False
+    before, after = _deck_size(state), _deck_size(result)
+    return before is not None and after is not None and after < before
+
+
 def _chose_option(state: DecisionState, action: ActionCandidate, option_id: str) -> bool:
     """Whether `action` selects the state option carrying `option_id` (e.g. a rest
     site's "SMITH"). The engine surfaces rest/event choices as ``choose_option``
@@ -251,6 +382,47 @@ def _selected_label(state: DecisionState, action: ActionCandidate) -> str | None
     return None
 
 
+def _explore_targets(
+    state: DecisionState, candidates: Sequence[ActionCandidate], names: Sequence[str],
+) -> list[int]:
+    """Candidate indices matching the configured explore names.
+
+    A bare name matches the action ("remove_card"). ``option:SMITH`` matches a
+    ``choose_option`` pointing at that semantic option id — necessary because rest
+    sites and every event share the ``choose_option`` action, and forcing all of
+    them would dither the whole event tree instead of one collapsed choice.
+    """
+    targets: list[int] = []
+    for index, candidate in enumerate(candidates):
+        if candidate.action in names:
+            targets.append(index)
+            continue
+        for name in names:
+            option_id = name.partition("option:")[2]
+            if option_id and _chose_option(state, candidate, option_id):
+                targets.append(index)
+                break
+    return targets
+
+
+def _forced_index(
+    state: DecisionState, candidates: Sequence[ActionCandidate], config: PPOConfig,
+    rng: random.Random,
+) -> int | None:
+    """Pick a collapsed action to force at this decision, or None to sample.
+
+    The roll happens once per decision that offers any target action, so epsilon
+    is the per-opportunity rate; when several are on offer one is chosen at random
+    so a shop cannot bias the draw toward whichever comes first.
+    """
+    if not config.explore_epsilon or not config.explore_actions:
+        return None
+    targets = _explore_targets(state, candidates, config.explore_actions)
+    if not targets or rng.random() >= config.explore_epsilon:
+        return None
+    return rng.choice(targets)
+
+
 def run_episode(
     client: EngineClient,
     stage: CurriculumStage,
@@ -274,6 +446,8 @@ def run_episode(
     deepest_floor = 0.0
     deepest_act = 1
     noop_guard = NoopGuard()
+    # Seeded from the episode seed so a re-recorded seed replays the same forcing.
+    explore_rng = random.Random(f"{seed}:explore")
     _emit_live(live_callback, {
         "type": "episode_start", "status": "starting", "episode_id": seed,
         "seed": seed, "step": 0,
@@ -286,6 +460,7 @@ def run_episode(
         hidden: tuple[float, ...] | None = None
         previous_floor = _floor(state)  # per-act, for potential-based shaping (unchanged)
         previous_hp = _hp_potential(state, 1.0)  # runs start at full HP -> g(1)=1
+        previous_deck = _deck_potential(state, 0.0)  # starting deck -> 0 bloat
         deepest_floor = _cumulative_floor(state)
         while True:
             deepest_act = max(deepest_act, _act(state))
@@ -316,11 +491,16 @@ def run_episode(
             # candidates actually presented, so PPO's re-scored log-probs stay
             # consistent with the sampled action's candidate set.
             effective = noop_guard.offer(state)
+            # Never during evaluation: dev win rate has to measure the policy, not
+            # the policy plus a dither.
+            forced = None if greedy else _forced_index(state, effective, config, explore_rng)
             if inference_lock:
                 with inference_lock:
-                    step = agent.act(state.raw, effective, hidden, greedy=greedy)
+                    step = agent.act(state.raw, effective, hidden, greedy=greedy,
+                                     force_index=forced)
             else:
-                step = agent.act(state.raw, effective, hidden, greedy=greedy)
+                step = agent.act(state.raw, effective, hidden, greedy=greedy,
+                                 force_index=forced)
             action = effective[step.index]
             result = client.step(action)
             noop_guard.record(current_hash, result.state.state_hash, action)
@@ -348,6 +528,12 @@ def run_episode(
                 new_hp = 0.0 if next_done else _hp_potential(result.state, previous_hp)
                 reward += config.hp_shaping_coef * (config.gamma * new_hp - previous_hp)
                 previous_hp = new_hp
+            if config.deck_shaping_coef and not stage.is_combat:
+                # Subtracted, not added: a bigger deck is a worse state, so taking a
+                # card costs ~coef/DECK_SPAN and shedding one pays the same.
+                new_deck = 0.0 if next_done else _deck_potential(result.state, previous_deck)
+                reward -= config.deck_shaping_coef * (config.gamma * new_deck - previous_deck)
+                previous_deck = new_deck
             # Milestone: beating an act boss advances the act index. A direct
             # (non-potential) reward so clearing act N is strictly better than
             # dying in it — the signal the policy-invariant shaping cannot give.
@@ -355,13 +541,15 @@ def run_episode(
                 reward += config.act_clear_bonus
             # Direct (non-potential) nudges for the two strategic decisions the
             # policy collapsed to a structural zero on: it always took HEAL over
-            # SMITH at rest (even at full HP) and never once removed a card at a
-            # shop (241 offers, 0 taken). Small so they stay below the +/-1
-            # terminal; they compose with the concave HP potential — heal still
-            # wins when hurt (steep low-HP region), SMITH wins when healthy (flat).
-            if config.smith_bonus and _chose_option(state, action, "SMITH"):
+            # SMITH at rest (even at full HP) and effectively never removed a card
+            # at a shop (28,863 offers, 14 taken over 100 iterations of
+            # m2_v7_acts12_hpshape — while the deck grew 18 -> 25 between the act-1
+            # and act-2 boss). Small so they stay below the +/-1 terminal; they
+            # compose with the concave HP potential — heal still wins when hurt
+            # (steep low-HP region), SMITH wins when healthy (flat).
+            if config.smith_bonus and _upgraded_a_card(state, result.state):
                 reward += config.smith_bonus
-            if config.remove_bonus and action.action == "remove_card":
+            if config.remove_bonus and _removed_a_card(state, result.state):
                 reward += config.remove_bonus
             steps.append(StoredStep(
                 dict(state.raw), tuple(effective), step.index,
